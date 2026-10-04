@@ -230,6 +230,7 @@ class ApplicationModel(Base):
     submitted_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
+    tasks = Column(JSON, default=list)  # Attached application tasks & status tracking
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -317,3 +318,39 @@ class SearchAgentModel(Base):
     is_active = Column(Boolean, default=True)
     last_run_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CrawlerSessionModel(Base):
+    __tablename__ = "crawler_sessions"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    status = Column(String(50), default="COMPLETED")  # RUNNING, COMPLETED, FAILED
+    mode = Column(String(50), default="IMMEDIATE")  # IMMEDIATE, SCHEDULED
+    platforms_crawled = Column(JSON, default=list)
+    total_discovered = Column(Integer, default=0)
+    total_matched = Column(Integer, default=0)
+    total_applied = Column(Integer, default=0)
+    total_staged = Column(Integer, default=0)
+    duration_seconds = Column(Float, default=0.0)
+    max_duration_minutes = Column(Integer, default=15)
+    max_applications = Column(Integer, default=5)
+    summary_text = Column(Text, nullable=True)
+    execution_logs = Column(JSON, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class CrawlerScheduleModel(Base):
+    __tablename__ = "crawler_schedules"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    is_active = Column(Boolean, default=False)
+    interval_hours = Column(Integer, default=6)
+    max_duration_minutes = Column(Integer, default=15)
+    max_applications = Column(Integer, default=5)
+    min_match_score = Column(Float, default=80.0)
+    auto_apply_enabled = Column(Boolean, default=True)
+    target_platforms = Column(JSON, default=list)
+    opportunity_types = Column(JSON, default=list)
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow)

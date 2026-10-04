@@ -15,6 +15,7 @@ import {
   Send,
   Zap,
   LogOut,
+  Globe,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 import { Navigation } from '@/components/Navigation';
@@ -32,6 +33,8 @@ import { ContributionsView } from '@/components/ContributionsView';
 import { ResumesView } from '@/components/ResumesView';
 import { AuthScreen } from '@/components/AuthScreen';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
+import { AutonomousCrawlerView } from '@/components/AutonomousCrawlerView';
+import { ApplicationsTrackerView } from '@/components/ApplicationsTrackerView';
 
 export default function OpportunityOSApp() {
   const [currentTab, setCurrentTab] = useState('dashboard');
@@ -243,6 +246,14 @@ export default function OpportunityOSApp() {
             </div>
 
             <button
+              onClick={() => setCurrentTab('crawler')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 text-xs font-semibold text-brand-300 border border-brand-500/30 hover:border-brand-500/50 transition-all shadow-sm"
+            >
+              <Globe className="w-3.5 h-3.5 text-brand-400" />
+              <span>Auto Crawler</span>
+            </button>
+
+            <button
               onClick={() => setIsImportOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-white border border-white/10 hover:border-white/20 transition-all"
             >
@@ -333,55 +344,19 @@ export default function OpportunityOSApp() {
             </div>
           )}
 
+          {currentTab === 'crawler' && (
+            <AutonomousCrawlerView
+              onRefreshAllData={loadData}
+              profile={profile}
+            />
+          )}
+
           {currentTab === 'applications' && (
-            <div className="space-y-4">
-              <div className="pb-3 border-b border-white/5">
-                <h2 className="text-base font-semibold text-white tracking-tight flex items-center gap-2">
-                  <Send className="w-4 h-4 text-emerald-400" />
-                  Prepared & Staged Applications
-                </h2>
-                <p className="text-xs text-zinc-400 mt-0.5">
-                  Tailored application packages ready for 1-click review or automated dispatch.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3">
-                {opportunities
-                  .filter((o) => o.application)
-                  .map((opp) => (
-                    <div
-                      key={opp.id}
-                      onClick={() => {
-                        setSelectedApplication({
-                          ...opp.application,
-                          opportunity: opp,
-                        });
-                      }}
-                      className="p-4 rounded-xl bg-surface-300/40 border border-white/5 hover:border-brand-500/30 cursor-pointer transition-all flex items-center justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-bold text-white">{opp.company_name}</span>
-                          <span className="text-[10px] font-mono text-amber-300 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">
-                            {opp.application.status}
-                          </span>
-                        </div>
-                        <p className="text-xs text-zinc-400">{opp.title}</p>
-                      </div>
-
-                      <button className="px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 text-xs font-semibold border border-brand-500/30 transition-all">
-                        Review Package
-                      </button>
-                    </div>
-                  ))}
-
-                {opportunities.filter((o) => o.application).length === 0 && (
-                  <div className="p-12 text-center text-zinc-500 text-xs border border-dashed border-white/5 rounded-xl">
-                    No applications prepared yet. Click "Prepare Application" on any opportunity card.
-                  </div>
-                )}
-              </div>
-            </div>
+            <ApplicationsTrackerView
+              opportunities={opportunities}
+              onSelectApplication={(app) => setSelectedApplication(app)}
+              onRefreshData={loadData}
+            />
           )}
 
           {currentTab === 'contacts' && (

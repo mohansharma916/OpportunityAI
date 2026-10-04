@@ -15,6 +15,7 @@ import {
   Sparkles,
   Zap,
   LogOut,
+  Globe,
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -28,6 +29,7 @@ interface NavigationProps {
 export function Navigation({ currentTab, onSelectTab, automationLevel, user, onLogout }: NavigationProps) {
   const navItems = [
     { id: 'dashboard', label: 'Command Center', icon: Compass },
+    { id: 'crawler', label: 'Auto Crawler', icon: Globe },
     { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
     { id: 'applications', label: 'Applications', icon: Send },
     { id: 'contacts', label: 'Contacts & CRM', icon: Users },

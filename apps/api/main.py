@@ -24,6 +24,7 @@ from apps.api.services.briefing_service import BriefingService
 from apps.api.services.auto_apply_service import AutoApplyService
 from apps.api.services.auth_service import AuthService
 from apps.api.services.onboarding_service import OnboardingService
+from apps.api.services.crawler_service import CrawlerService
 from apps.api.models import OpportunityModel, ResumeVariantModel, UserModel
 
 
@@ -97,6 +98,76 @@ class UpdateAnswerRequest(BaseModel):
     answer_text: Optional[str] = None
     question_canonical: Optional[str] = None
     is_verified: Optional[bool] = None
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: Optional[str] = None
+    headline: Optional[str] = None
+    location: Optional[str] = None
+    country: Optional[str] = None
+    timezone: Optional[str] = None
+    preferred_working_hours: Optional[str] = None
+    target_roles: Optional[List[str]] = None
+    minimum_salary_annual: Optional[float] = None
+    minimum_hourly_rate: Optional[float] = None
+    salary_currency: Optional[str] = None
+    preferred_currencies: Optional[List[str]] = None
+    remote_preference: Optional[str] = None
+    notice_period_days: Optional[int] = None
+    visa_sponsorship_needed: Optional[bool] = None
+    authorized_countries: Optional[List[str]] = None
+    automation_level: Optional[int] = None
+
+
+class CreateSkillRequest(BaseModel):
+    skill_name: str
+    proficiency: Optional[str] = "ADVANCED"
+    experience_years: Optional[float] = 3.0
+
+
+class CreateExperienceRequest(BaseModel):
+    company: str
+    role: str
+    location: Optional[str] = "Remote"
+    employment_type: Optional[str] = "FULL_TIME"
+    start_date: Optional[str] = "2022"
+    end_date: Optional[str] = "Present"
+    is_current: Optional[bool] = True
+    summary: Optional[str] = ""
+    technologies: Optional[List[str]] = []
+
+
+class RunCrawlerRequest(BaseModel):
+    mode: Optional[str] = "IMMEDIATE"
+    max_duration_minutes: Optional[int] = 15
+    max_applications: Optional[int] = 5
+    min_match_score: Optional[float] = 80.0
+    target_platforms: Optional[List[str]] = None
+    opportunity_types: Optional[List[str]] = None
+    auto_apply_enabled: Optional[bool] = True
+
+
+class UpdateScheduleRequest(BaseModel):
+    is_active: Optional[bool] = None
+    interval_hours: Optional[int] = None
+    max_duration_minutes: Optional[int] = None
+    max_applications: Optional[int] = None
+    min_match_score: Optional[float] = None
+    auto_apply_enabled: Optional[bool] = None
+    target_platforms: Optional[List[str]] = None
+    opportunity_types: Optional[List[str]] = None
+
+
+class UpdateAppStatusRequest(BaseModel):
+    status: str
+
+
+class CreateTaskRequest(BaseModel):
+    title: str
+
+
+class ToggleTaskRequest(BaseModel):
+    status: Optional[str] = None
 
 
 class AICommandRequest(BaseModel):
@@ -245,6 +316,80 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
     return profile
 
 
+@app.put("/api/profile")
+async def update_profile(req: UpdateProfileRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        updated = await ProfileService.update_profile(db, req.dict(exclude_unset=True))
+        return updated
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/profile/skills")
+async def add_skill(req: CreateSkillRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        skill = await ProfileService.add_skill(
+            db,
+            skill_name=req.skill_name,
+            proficiency=req.proficiency or "ADVANCED",
+            experience_years=req.experience_years or 3.0,
+        )
+        return {
+            "id": skill.id,
+            "skill_name": skill.skill_name,
+            "proficiency": skill.proficiency,
+            "experience_years": skill.experience_years,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/profile/skills/{skill_id}")
+async def delete_skill(skill_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        success = await ProfileService.delete_skill(db, skill_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Skill not found")
+        return {"deleted": True, "id": skill_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/profile/experiences")
+async def add_experience(req: CreateExperienceRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        exp = await ProfileService.add_work_experience(db, req.dict())
+        return {
+            "id": exp.id,
+            "company": exp.company,
+            "role": exp.role,
+            "location": exp.location,
+            "employment_type": exp.employment_type,
+            "start_date": exp.start_date,
+            "end_date": exp.end_date,
+            "is_current": exp.is_current,
+            "summary": exp.summary,
+            "technologies": exp.technologies or [],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/profile/experiences/{exp_id}")
+async def delete_experience(exp_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        success = await ProfileService.delete_work_experience(db, exp_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Experience not found")
+        return {"deleted": True, "id": exp_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/profile/answers")
 async def get_answers(db: AsyncSession = Depends(get_db)):
     answers = await ProfileService.get_verified_answers(db)
@@ -388,6 +533,106 @@ async def approve_application(
 
         sub = await app_service.approve_and_submit(db, application_id, user_notes=req.user_notes)
         return sub
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/applications/{application_id}/status")
+async def update_application_status_endpoint(
+    application_id: str, req: UpdateAppStatusRequest, db: AsyncSession = Depends(get_db)
+):
+    try:
+        app_mod = await app_service.update_status(db, application_id, req.status)
+        if not app_mod:
+            raise HTTPException(status_code=404, detail="Application not found")
+        return {
+            "id": app_mod.id,
+            "opportunity_id": app_mod.opportunity_id,
+            "status": app_mod.status,
+            "tasks": app_mod.tasks or [],
+            "submission_mode": app_mod.submission_mode,
+            "notes": app_mod.notes,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/applications/{application_id}/tasks")
+async def add_application_task_endpoint(
+    application_id: str, req: CreateTaskRequest, db: AsyncSession = Depends(get_db)
+):
+    try:
+        app_mod = await app_service.add_task(db, application_id, req.title)
+        if not app_mod:
+            raise HTTPException(status_code=404, detail="Application not found")
+        return app_mod.tasks or []
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/applications/{application_id}/tasks/{task_id}")
+async def toggle_application_task_endpoint(
+    application_id: str, task_id: str, req: ToggleTaskRequest = ToggleTaskRequest(), db: AsyncSession = Depends(get_db)
+):
+    try:
+        app_mod = await app_service.toggle_task(db, application_id, task_id, req.status)
+        if not app_mod:
+            raise HTTPException(status_code=404, detail="Application not found")
+        return app_mod.tasks or []
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# -------------------------------------------------------------------
+# Autonomous Crawler & Auto-Apply Control Endpoints
+# -------------------------------------------------------------------
+
+@app.post("/api/crawler/run")
+async def run_crawler_endpoint(
+    req: RunCrawlerRequest = RunCrawlerRequest(), db: AsyncSession = Depends(get_db)
+):
+    try:
+        result = await CrawlerService.run_crawler(
+            db,
+            mode=req.mode or "IMMEDIATE",
+            max_duration_minutes=req.max_duration_minutes or 15,
+            max_applications=req.max_applications or 5,
+            min_match_score=req.min_match_score or 80.0,
+            target_platforms=req.target_platforms,
+            opportunity_types=req.opportunity_types,
+            auto_apply_enabled=req.auto_apply_enabled if req.auto_apply_enabled is not None else True,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/crawler/status")
+async def get_crawler_status_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        latest = await CrawlerService.get_latest_session(db)
+        sched = await CrawlerService.get_or_create_schedule(db)
+        return {
+            "latest_session": latest,
+            "schedule": sched,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/crawler/schedule")
+async def update_crawler_schedule_endpoint(
+    req: UpdateScheduleRequest, db: AsyncSession = Depends(get_db)
+):
+    try:
+        sched = await CrawlerService.update_schedule(db, req.dict(exclude_unset=True))
+        return sched
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

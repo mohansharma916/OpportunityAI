@@ -116,6 +116,17 @@ class ApplicationService:
         if profile.automation_level >= 4:
             submission_mode = "AUTO"
 
+        now_str = datetime.utcnow().strftime("%b %d, %H:%M")
+        default_tasks = [
+            {"id": "t1", "title": "Opportunity Crawled & Analyzed", "status": "COMPLETED", "completed_at": now_str},
+            {"id": "t2", "title": "Semantic Fit & Salary Floor Validated", "status": "COMPLETED", "completed_at": now_str},
+            {"id": "t3", "title": f"Tailored Resume Variant ({tailored_resume.variant_name}) Generated", "status": "COMPLETED", "completed_at": now_str},
+            {"id": "t4", "title": f"Targeted Cover Letter ({style}) Synthesized", "status": "COMPLETED", "completed_at": now_str},
+            {"id": "t5", "title": f"Screening Q&A Memory Resolved ({len(verified_answers)} Answers)", "status": "COMPLETED", "completed_at": now_str},
+            {"id": "t6", "title": "Application Submitted to Employer Portal", "status": "PENDING", "completed_at": None},
+            {"id": "t7", "title": "Hiring Manager / Team Follow-Up", "status": "PENDING", "completed_at": None},
+        ]
+
         if not application:
             application = ApplicationModel(
                 id=str(uuid.uuid4()),
@@ -126,6 +137,7 @@ class ApplicationService:
                 status=initial_status,
                 submission_url=opp_model.url,
                 notes=f"Prepared {style} application with {len(tailored_resume.selected_skills)} targeted skills.",
+                tasks=default_tasks,
             )
             db.add(application)
         else:
@@ -133,6 +145,8 @@ class ApplicationService:
             application.cover_letter_id = cover_model.id
             application.status = initial_status
             application.submission_mode = submission_mode
+            if not application.tasks:
+                application.tasks = default_tasks
 
         # Update opportunity pipeline status
         opp_model.status = PipelineStatus.NEEDS_APPROVAL.value
@@ -217,3 +231,85 @@ class ApplicationService:
             stmt = stmt.where(ApplicationModel.status == status)
         res = await db.execute(stmt)
         return list(res.scalars().all())
+
+    async def update_status(
+        self, db: AsyncSession, application_id: str, status: str
+    ) -> Optional[ApplicationModel]:
+        stmt = (
+            select(ApplicationModel)
+            .options(
+                selectinload(ApplicationModel.opportunity),
+                selectinload(ApplicationModel.resume_variant),
+                selectinload(ApplicationModel.cover_letter),
+            )
+            .where(ApplicationModel.id == application_id)
+        )
+        res = await db.execute(stmt)
+        application = res.scalar_one_or_none()
+        if not application:
+            return None
+
+        application.status = status
+        if status in ["SUBMITTED", "AUTO_APPLIED"] and not application.submitted_at:
+            application.submitted_at = datetime.utcnow()
+
+        if application.opportunity:
+            if status in ["SUBMITTED", "AUTO_APPLIED"]:
+                application.opportunity.status = PipelineStatus.APPLIED.value
+            elif status == "INTERVIEWING":
+                application.opportunity.status = PipelineStatus.INTERVIEW.value
+            elif status == "OFFERED":
+                application.opportunity.status = PipelineStatus.OFFER.value
+            elif status == "REJECTED":
+                application.opportunity.status = PipelineStatus.REJECTED.value
+
+        await db.commit()
+        await db.refresh(application)
+        return application
+
+    async def add_task(
+        self, db: AsyncSession, application_id: str, title: str
+    ) -> Optional[ApplicationModel]:
+        stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+        res = await db.execute(stmt)
+        application = res.scalar_one_or_none()
+        if not application:
+            return None
+
+        current_tasks = list(application.tasks or [])
+        new_task = {
+            "id": f"task-{uuid.uuid4().hex[:6]}",
+            "title": title.strip(),
+            "status": "PENDING",
+            "created_at": datetime.utcnow().strftime("%b %d, %H:%M"),
+        }
+        current_tasks.append(new_task)
+        application.tasks = current_tasks
+        await db.commit()
+        await db.refresh(application)
+        return application
+
+    async def toggle_task(
+        self, db: AsyncSession, application_id: str, task_id: str, new_status: Optional[str] = None
+    ) -> Optional[ApplicationModel]:
+        stmt = select(ApplicationModel).where(ApplicationModel.id == application_id)
+        res = await db.execute(stmt)
+        application = res.scalar_one_or_none()
+        if not application:
+            return None
+
+        current_tasks = list(application.tasks or [])
+        updated = []
+        for t in current_tasks:
+            if t.get("id") == task_id:
+                curr = t.get("status", "PENDING")
+                target = new_status if new_status else ("COMPLETED" if curr == "PENDING" else "PENDING")
+                completed_at = datetime.utcnow().strftime("%b %d, %H:%M") if target == "COMPLETED" else None
+                updated.append({**t, "status": target, "completed_at": completed_at})
+            else:
+                updated.append(t)
+
+        application.tasks = updated
+        await db.commit()
+        await db.refresh(application)
+        return application

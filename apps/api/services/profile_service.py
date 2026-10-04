@@ -377,3 +377,93 @@ class ProfileService:
         await db.delete(existing)
         await db.commit()
         return True
+
+    @staticmethod
+    async def update_profile(db: AsyncSession, data: Dict[str, Any]) -> Optional[CandidateProfile]:
+        model = await ProfileService.get_or_create_profile(db)
+        if not model:
+            return None
+
+        # Update scalar fields
+        for field in [
+            "full_name", "headline", "location", "country", "timezone",
+            "preferred_working_hours", "minimum_salary_annual", "minimum_hourly_rate",
+            "salary_currency", "remote_preference", "timezone_overlap_hours",
+            "notice_period_days", "visa_sponsorship_needed", "automation_level"
+        ]:
+            if field in data and data[field] is not None:
+                setattr(model, field, data[field])
+
+        # Update JSON list fields
+        for json_field in ["countries_willing_to_work", "target_roles", "preferred_currencies", "authorized_countries"]:
+            if json_field in data and data[json_field] is not None:
+                setattr(model, json_field, data[json_field])
+
+        await db.commit()
+        return await ProfileService.get_domain_profile(db)
+
+    @staticmethod
+    async def add_skill(
+        db: AsyncSession,
+        skill_name: str,
+        proficiency: str = "ADVANCED",
+        experience_years: float = 3.0,
+    ) -> CandidateSkillModel:
+        model = await ProfileService.get_or_create_profile(db)
+        new_skill = CandidateSkillModel(
+            id=str(uuid.uuid4()),
+            profile_id=model.id if model else None,
+            skill_name=skill_name.strip(),
+            proficiency=proficiency,
+            experience_years=float(experience_years),
+            last_used="Currently used",
+            related_projects=[],
+        )
+        db.add(new_skill)
+        await db.commit()
+        await db.refresh(new_skill)
+        return new_skill
+
+    @staticmethod
+    async def delete_skill(db: AsyncSession, skill_id: str) -> bool:
+        stmt = select(CandidateSkillModel).where(CandidateSkillModel.id == skill_id)
+        res = await db.execute(stmt)
+        skill = res.scalar_one_or_none()
+        if not skill:
+            return False
+        await db.delete(skill)
+        await db.commit()
+        return True
+
+    @staticmethod
+    async def add_work_experience(db: AsyncSession, exp_data: Dict[str, Any]) -> WorkExperienceModel:
+        model = await ProfileService.get_or_create_profile(db)
+        new_exp = WorkExperienceModel(
+            id=str(uuid.uuid4()),
+            profile_id=model.id if model else None,
+            company=exp_data.get("company", "Company"),
+            role=exp_data.get("role", "Software Engineer"),
+            location=exp_data.get("location", "Remote"),
+            employment_type=exp_data.get("employment_type", "FULL_TIME"),
+            start_date=exp_data.get("start_date", "2022"),
+            end_date=exp_data.get("end_date", "Present"),
+            is_current=exp_data.get("is_current", True),
+            summary=exp_data.get("summary", ""),
+            key_achievements=exp_data.get("key_achievements", []),
+            technologies=exp_data.get("technologies", []),
+        )
+        db.add(new_exp)
+        await db.commit()
+        await db.refresh(new_exp)
+        return new_exp
+
+    @staticmethod
+    async def delete_work_experience(db: AsyncSession, exp_id: str) -> bool:
+        stmt = select(WorkExperienceModel).where(WorkExperienceModel.id == exp_id)
+        res = await db.execute(stmt)
+        exp = res.scalar_one_or_none()
+        if not exp:
+            return False
+        await db.delete(exp)
+        await db.commit()
+        return True
