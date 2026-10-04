@@ -135,6 +135,28 @@ Engineered high-throughput collaboration dashboards used by enterprise users wor
 
   const [completionResult, setCompletionResult] = useState<any>(null);
   const [newSkillInput, setNewSkillInput] = useState('');
+  const [newSkillYears, setNewSkillYears] = useState<number>(3);
+  const [newSkillProficiency, setNewSkillProficiency] = useState<'INTERMEDIATE' | 'ADVANCED' | 'EXPERT'>('ADVANCED');
+
+  const handleAddSkill = () => {
+    if (!newSkillInput.trim()) return;
+    const years = Math.max(0.1, Number(newSkillYears) || 1);
+    setParsedData({
+      ...parsedData,
+      skills: [
+        ...(parsedData.skills || []),
+        {
+          skill_name: newSkillInput.trim(),
+          proficiency: newSkillProficiency,
+          experience_years: years,
+          last_used: 'Currently used',
+          related_projects: [],
+        },
+      ],
+    });
+    setNewSkillInput('');
+    setNewSkillYears(3);
+  };
 
   const handleCompleteOnboarding = async () => {
     setLoadingComplete(true);
@@ -678,81 +700,116 @@ Engineered high-throughput collaboration dashboards used by enterprise users wor
 
             {/* Skills & Evidence Chips */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider font-mono">
-                  Verified Skills & Technologies ({parsedData.skills?.length || 0})
-                </h4>
-                <div className="flex items-center gap-1.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                <div>
+                  <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-brand-400" />
+                    Verified Skills & Technologies ({parsedData.skills?.length || 0})
+                  </h4>
+                  <p className="text-[11px] text-zinc-500 font-mono mt-0.5">
+                    Durations are auto-calculated from resume dates & tenure. Edit duration or add custom skills below.
+                  </p>
+                </div>
+                
+                {/* Add Skill with Duration Toolbar */}
+                <div className="flex flex-wrap items-center gap-1.5 bg-surface-400/80 p-1.5 rounded-lg border border-white/5">
                   <input
                     type="text"
-                    placeholder="Add skill (e.g. Next.js)..."
+                    placeholder="Skill (e.g. Next.js, Go)..."
                     value={newSkillInput}
                     onChange={(e) => setNewSkillInput(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newSkillInput.trim()) {
+                      if (e.key === 'Enter') {
                         e.preventDefault();
-                        setParsedData({
-                          ...parsedData,
-                          skills: [
-                            ...parsedData.skills,
-                            {
-                              skill_name: newSkillInput.trim(),
-                              proficiency: 'ADVANCED',
-                              experience_years: 4.0,
-                              last_used: 'Currently used',
-                              related_projects: [],
-                            },
-                          ],
-                        });
-                        setNewSkillInput('');
+                        handleAddSkill();
                       }
                     }}
-                    className="bg-surface-300 border border-white/10 rounded px-2 py-0.5 text-[11px] text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500/50 w-36"
+                    className="bg-surface-300 border border-white/10 rounded px-2 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500/50 w-36"
                   />
+                  <div className="flex items-center gap-1 bg-surface-300 border border-white/10 rounded px-2 py-1">
+                    <input
+                      type="number"
+                      min="0.1"
+                      max="30"
+                      step="0.5"
+                      placeholder="Years"
+                      value={newSkillYears}
+                      onChange={(e) => setNewSkillYears(parseFloat(e.target.value) || 0)}
+                      className="w-12 bg-transparent text-xs text-cyan-300 font-mono focus:outline-none"
+                    />
+                    <span className="text-[10px] text-zinc-400 font-mono">yrs</span>
+                  </div>
+                  <select
+                    value={newSkillProficiency}
+                    onChange={(e) => setNewSkillProficiency(e.target.value as any)}
+                    className="bg-surface-300 border border-white/10 rounded px-2 py-1 text-xs text-amber-300 font-mono focus:outline-none"
+                  >
+                    <option value="INTERMEDIATE">Intermediate</option>
+                    <option value="ADVANCED">Advanced</option>
+                    <option value="EXPERT">Expert</option>
+                  </select>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (newSkillInput.trim()) {
-                        setParsedData({
-                          ...parsedData,
-                          skills: [
-                            ...parsedData.skills,
-                            {
-                              skill_name: newSkillInput.trim(),
-                              proficiency: 'ADVANCED',
-                              experience_years: 4.0,
-                              last_used: 'Currently used',
-                              related_projects: [],
-                            },
-                          ],
-                        });
-                        setNewSkillInput('');
-                      }
-                    }}
-                    className="text-[10px] font-mono bg-white/5 hover:bg-white/10 text-zinc-300 px-2 py-1 rounded"
+                    onClick={handleAddSkill}
+                    className="text-xs font-mono bg-brand-500 hover:bg-brand-400 text-white px-3 py-1 rounded font-medium transition-colors shadow-sm shadow-brand-500/20"
                   >
                     + Add
                   </button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {parsedData.skills.map((s: any, idx: number) => (
-                  <span
+
+              {/* Skills Grid / Badges with Inline Duration Editing */}
+              <div className="flex flex-wrap gap-2.5">
+                {(parsedData.skills || []).map((s: any, idx: number) => (
+                  <div
                     key={idx}
-                    className="text-xs font-mono bg-brand-500/10 text-brand-300 px-2.5 py-1 rounded border border-brand-500/20 flex items-center gap-1.5"
+                    className="text-xs font-mono bg-brand-500/10 text-brand-300 px-2.5 py-1.5 rounded-lg border border-brand-500/20 flex items-center gap-2 hover:border-brand-500/40 transition-colors shadow-sm"
                   >
-                    {s.skill_name} ({s.experience_years} yrs • {s.proficiency})
+                    <span className="font-semibold text-white">{s.skill_name}</span>
+                    <div className="flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded border border-white/10" title="Edit experience duration in years">
+                      <input
+                        type="number"
+                        min="0.1"
+                        max="30"
+                        step="0.5"
+                        value={s.experience_years}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          const updated = [...parsedData.skills];
+                          updated[idx] = { ...updated[idx], experience_years: val };
+                          setParsedData({ ...parsedData, skills: updated });
+                        }}
+                        className="w-10 bg-transparent text-cyan-300 font-mono text-[11px] text-right focus:outline-none rounded px-0.5"
+                      />
+                      <span className="text-[10px] text-zinc-400">yrs</span>
+                    </div>
+                    <select
+                      value={s.proficiency}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const updated = [...parsedData.skills];
+                        updated[idx] = { ...updated[idx], proficiency: val };
+                        setParsedData({ ...parsedData, skills: updated });
+                      }}
+                      className="bg-black/40 text-[10px] text-amber-300/90 font-mono rounded px-1.5 py-0.5 border border-white/10 focus:outline-none cursor-pointer"
+                      title="Select proficiency tier"
+                    >
+                      <option value="INTERMEDIATE">INTERMEDIATE</option>
+                      <option value="ADVANCED">ADVANCED</option>
+                      <option value="EXPERT">EXPERT</option>
+                    </select>
                     <button
                       type="button"
                       onClick={() => {
                         const updated = parsedData.skills.filter((_: any, i: number) => i !== idx);
                         setParsedData({ ...parsedData, skills: updated });
                       }}
-                      className="text-zinc-500 hover:text-rose-400 ml-1 font-bold text-xs"
+                      className="text-zinc-500 hover:text-rose-400 ml-1 font-bold text-sm leading-none"
+                      title="Remove skill"
                     >
                       ×
                     </button>
-                  </span>
+                  </div>
                 ))}
               </div>
             </div>

@@ -79,26 +79,58 @@ class OnboardingService:
                 headline = line
                 break
 
-        # 4. Extract Technical Skills
+        # Estimate overall career duration from date ranges or mentions
+        current_year = datetime.utcnow().year
+        year_ranges = re.findall(r"\b(20\d\d|19\d\d)\b\s*(?:-|–|to)\s*\b(20\d\d|present|current)\b", full_text, re.IGNORECASE)
+        career_years = 5.0
+        if year_ranges:
+            earliest_yr = min(int(start) for start, _ in year_ranges)
+            career_years = max(1.0, float(current_year - earliest_yr))
+        else:
+            exp_mention = re.search(r"(\d+)\+?\s*years?(?:\s+of)?\s+experience", full_text, re.IGNORECASE)
+            if exp_mention:
+                career_years = float(exp_mention.group(1))
+
+        # 4. Extract Technical Skills with Dynamic Duration Calculation
         catalog = [
-            ("React", "EXPERT", 7.0, ["Next.js", "Web Architecture"]),
-            ("TypeScript", "EXPERT", 6.5, ["Strict Type Systems", "GraphQL"]),
-            ("Python", "EXPERT", 8.0, ["FastAPI", "Asyncio"]),
-            ("FastAPI", "ADVANCED", 5.0, ["REST APIs", "Microservices"]),
-            ("PostgreSQL", "ADVANCED", 7.0, ["pgvector", "Query Tuning"]),
-            ("Docker", "ADVANCED", 6.0, ["Containerization", "CI/CD"]),
-            ("Temporal", "ADVANCED", 3.0, ["Durable Orchestration"]),
-            ("Kubernetes", "INTERMEDIATE", 4.0, ["Cloud Infrastructure"]),
-            ("Redis", "ADVANCED", 5.5, ["Distributed Caching"]),
-            ("Go", "INTERMEDIATE", 3.0, ["Concurrency"]),
-            ("AWS", "ADVANCED", 6.0, ["Cloud Services"]),
-            ("Node.js", "ADVANCED", 6.0, ["Backend Runtimes"]),
-            ("Tailwind", "ADVANCED", 4.0, ["Design Systems"]),
+            ("React", ["Next.js", "Web Architecture"]),
+            ("TypeScript", ["Strict Type Systems", "GraphQL"]),
+            ("Python", ["FastAPI", "Asyncio"]),
+            ("FastAPI", ["REST APIs", "Microservices"]),
+            ("PostgreSQL", ["pgvector", "Query Tuning"]),
+            ("Docker", ["Containerization", "CI/CD"]),
+            ("Temporal", ["Durable Orchestration"]),
+            ("Kubernetes", ["Cloud Infrastructure"]),
+            ("Redis", ["Distributed Caching"]),
+            ("Go", ["Concurrency"]),
+            ("AWS", ["Cloud Services"]),
+            ("Node.js", ["Backend Runtimes"]),
+            ("Tailwind", ["Design Systems"]),
+            ("Next.js", ["App Router", "Server Components"]),
+            ("Playwright", ["E2E Automation", "Browser Testing"]),
+            ("Rust", ["Systems Engineering"]),
+            ("GraphQL", ["API Design"]),
         ]
 
         extracted_skills = []
-        for name_s, prof, yrs, projs in catalog:
+        for name_s, projs in catalog:
             if re.search(r"\b" + re.escape(name_s) + r"\b", full_text, re.IGNORECASE):
+                # 1. Check for explicit duration mention like '5+ years of React' or 'React (4 yrs)'
+                explicit_pattern = rf"(?:(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)(?:\s+of)?\s+(?:experience\s+(?:with|in)\s+)?{re.escape(name_s)}|{re.escape(name_s)}\s*[\(\:]\s*(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?))"
+                match = re.search(explicit_pattern, full_text, re.IGNORECASE)
+                if match:
+                    yrs = float(match.group(1) or match.group(2))
+                else:
+                    # Dynamically calculate based on candidate career span
+                    yrs = round(min(career_years, max(1.5, career_years * 0.7)), 1)
+
+                if yrs >= 6.0:
+                    prof = "EXPERT"
+                elif yrs >= 3.0:
+                    prof = "ADVANCED"
+                else:
+                    prof = "INTERMEDIATE"
+
                 extracted_skills.append({
                     "skill_name": name_s,
                     "proficiency": prof,
@@ -108,11 +140,12 @@ class OnboardingService:
                 })
 
         if not extracted_skills:
+            default_yrs = round(min(career_years, 4.0), 1)
             extracted_skills = [
-                {"skill_name": "Python", "proficiency": "ADVANCED", "experience_years": 5.0, "last_used": "Currently used", "related_projects": []},
-                {"skill_name": "React", "proficiency": "ADVANCED", "experience_years": 5.0, "last_used": "Currently used", "related_projects": []},
-                {"skill_name": "TypeScript", "proficiency": "ADVANCED", "experience_years": 4.0, "last_used": "Currently used", "related_projects": []},
-                {"skill_name": "PostgreSQL", "proficiency": "ADVANCED", "experience_years": 5.0, "last_used": "Currently used", "related_projects": []},
+                {"skill_name": "Python", "proficiency": "ADVANCED", "experience_years": default_yrs, "last_used": "Currently used", "related_projects": []},
+                {"skill_name": "React", "proficiency": "ADVANCED", "experience_years": default_yrs, "last_used": "Currently used", "related_projects": []},
+                {"skill_name": "TypeScript", "proficiency": "ADVANCED", "experience_years": default_yrs, "last_used": "Currently used", "related_projects": []},
+                {"skill_name": "PostgreSQL", "proficiency": "ADVANCED", "experience_years": default_yrs, "last_used": "Currently used", "related_projects": []},
             ]
 
         # 5. Extract Quantified Accomplishments
