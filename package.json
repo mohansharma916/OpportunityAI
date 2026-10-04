@@ -1,0 +1,24 @@
+{
+  "name": "opportunity-os",
+  "version": "1.0.0",
+  "description": "AI-Powered Opportunity Discovery, Application Automation & Networking Platform",
+  "private": true,
+  "scripts": {
+    "dev": "cd apps/web && pnpm dev",
+    "dev:web": "cd apps/web && pnpm dev",
+    "dev:api": "uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload",
+    "build": "cd apps/web && pnpm build",
+    "start": "cd apps/web && pnpm start",
+    "test": "pytest tests/ -v"
+  },
+  "keywords": [
+    "ai",
+    "career",
+    "automation",
+    "job-search",
+    "nextjs",
+    "fastapi"
+  ],
+  "author": "",
+  "license": "MIT"
+}
