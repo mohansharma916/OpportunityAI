@@ -309,11 +309,15 @@ class OnboardingService:
 
         # 3. Save Verified Q&A Memory for Instant Automated Form Fill
         auth_countries = ", ".join(profile.authorized_countries or ["US"])
+        is_us_auth = any(c.lower() in ["us", "usa", "united states"] for c in (profile.authorized_countries or ["US"]))
+        us_answer = "Yes, legally authorized to work in the United States without restrictions." if is_us_auth and not profile.visa_sponsorship_needed else ("Yes, authorized to work in the US with visa sponsorship." if is_us_auth else f"Authorized to work in {auth_countries}.")
+
         qa_data = [
+            ("work_authorization_us", "Are you legally authorized to work in the United States?", us_answer),
             ("work_authorization", "Are you legally authorized to work in the specified regions?", f"Yes, legally authorized to work in {auth_countries} without restriction."),
-            ("visa_sponsorship", "Will you require visa sponsorship now or in the future?", "Yes" if profile.visa_sponsorship_needed else "No, I do not require sponsorship."),
+            ("visa_sponsorship", "Will you require visa sponsorship now or in the future?", "Yes" if profile.visa_sponsorship_needed else "No, I do not require visa sponsorship."),
             ("notice_period", "What is your earliest start date or notice period?", f"{profile.notice_period_days} days notice."),
-            ("salary_floor", "What are your salary or compensation expectations?", f"${profile.minimum_salary_annual:,.0f} base annual or ${profile.minimum_hourly_rate:,.0f}/hr contract floor."),
+            ("salary_floor", "What are your salary or compensation expectations?", f"{profile.salary_currency or 'USD'} {profile.minimum_salary_annual:,.0f} base annual or {profile.minimum_hourly_rate:,.0f}/hr contract floor."),
             ("remote_setup", "Do you have experience in distributed remote environments?", "Yes, extensive track record working with global asynchronous engineering teams."),
         ]
         for canon, q_txt, a_txt in qa_data:
@@ -331,6 +335,10 @@ class OnboardingService:
                         source="ONBOARDING_VERIFICATION",
                     )
                 )
+            else:
+                existing_qa.answer_text = a_txt
+                existing_qa.question_text = q_txt
+                existing_qa.last_verified = datetime.utcnow()
 
         # 4. Mark user onboarding completed
         user.onboarding_completed = True

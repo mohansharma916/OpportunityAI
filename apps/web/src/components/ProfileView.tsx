@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User,
   ShieldCheck,
@@ -13,16 +13,108 @@ import {
   Sparkles,
   HelpCircle,
   FileCheck,
+  Plus,
+  Trash2,
+  Edit3,
+  Save,
+  X,
+  Loader2,
+  Check,
 } from 'lucide-react';
+import { fetchApi } from '@/lib/api';
 
 interface ProfileViewProps {
   profile: any;
   verifiedAnswers: any[];
   onRestartOnboarding?: () => void;
+  onUpdateAnswers?: () => void;
 }
 
-export function ProfileView({ profile, verifiedAnswers, onRestartOnboarding }: ProfileViewProps) {
+export function ProfileView({
+  profile,
+  verifiedAnswers,
+  onRestartOnboarding,
+  onUpdateAnswers,
+}: ProfileViewProps) {
   const [activeSection, setActiveSection] = useState<'skills' | 'knowledge' | 'answers' | 'experience'>('skills');
+
+  // Answers State & Management
+  const [answersList, setAnswersList] = useState<any[]>(verifiedAnswers || []);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editQuestion, setEditQuestion] = useState('');
+  const [editAnswer, setEditAnswer] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const [showAddAnswer, setShowAddAnswer] = useState(false);
+  const [newQuestion, setNewQuestion] = useState('');
+  const [newAnswer, setNewAnswer] = useState('');
+  const [savingNew, setSavingNew] = useState(false);
+
+  useEffect(() => {
+    setAnswersList(verifiedAnswers || []);
+  }, [verifiedAnswers]);
+
+  const handleStartEdit = (ans: any) => {
+    setEditingId(ans.id);
+    setEditQuestion(ans.question_text);
+    setEditAnswer(ans.answer_text);
+  };
+
+  const handleSaveEdit = async (ansId: string) => {
+    if (!editQuestion.trim() || !editAnswer.trim()) return;
+    setSavingEdit(true);
+    try {
+      const updated = await fetchApi<any>(`/api/profile/answers/${ansId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          question_text: editQuestion.trim(),
+          answer_text: editAnswer.trim(),
+        }),
+      });
+      setAnswersList((prev) => prev.map((a) => (a.id === ansId ? updated : a)));
+      setEditingId(null);
+      onUpdateAnswers?.();
+    } catch (err: any) {
+      alert(`Failed to save question: ${err.message}`);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteAnswer = async (ansId: string) => {
+    if (!confirm('Are you sure you want to remove this question from your application memory?')) return;
+    try {
+      await fetchApi(`/api/profile/answers/${ansId}`, { method: 'DELETE' });
+      setAnswersList((prev) => prev.filter((a) => a.id !== ansId));
+      onUpdateAnswers?.();
+    } catch (err: any) {
+      alert(`Failed to delete answer: ${err.message}`);
+    }
+  };
+
+  const handleCreateAnswer = async () => {
+    if (!newQuestion.trim() || !newAnswer.trim()) return;
+    setSavingNew(true);
+    try {
+      const created = await fetchApi<any>('/api/profile/answers', {
+        method: 'POST',
+        body: JSON.stringify({
+          question_text: newQuestion.trim(),
+          answer_text: newAnswer.trim(),
+          source: 'USER_PROFILE',
+        }),
+      });
+      setAnswersList((prev) => [created, ...prev.filter((a) => a.id !== created.id)]);
+      setNewQuestion('');
+      setNewAnswer('');
+      setShowAddAnswer(false);
+      onUpdateAnswers?.();
+    } catch (err: any) {
+      alert(`Failed to add answer: ${err.message}`);
+    } finally {
+      setSavingNew(false);
+    }
+  };
 
   if (!profile) return null;
 
@@ -183,25 +275,177 @@ export function ProfileView({ profile, verifiedAnswers, onRestartOnboarding }: P
       )}
 
       {activeSection === 'answers' && (
-        <div className="space-y-3">
-          {verifiedAnswers.map((ans: any) => (
-            <div
-              key={ans.id}
-              className="p-4 rounded-xl bg-surface-300/40 border border-white/5 space-y-1.5"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-300 font-sans">
-                  {ans.question_text}
-                </span>
-                <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40">
-                  Verified
-                </span>
-              </div>
-              <p className="text-xs text-emerald-300 font-mono bg-emerald-950/20 p-2.5 rounded-lg border border-emerald-500/20">
-                "{ans.answer_text}"
+        <div className="space-y-4">
+          {/* Header & Add Button */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-surface-300/30 border border-white/5">
+            <div>
+              <h3 className="text-xs font-bold text-white font-mono flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-emerald-400" />
+                Application Screening Q&A Memory ({answersList.length})
+              </h3>
+              <p className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                Every response saved here is remembered by the autonomous agent to pre-fill future applications & ATS screening forms.
               </p>
             </div>
-          ))}
+            <button
+              type="button"
+              onClick={() => setShowAddAnswer(!showAddAnswer)}
+              className="text-xs font-mono bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/40 px-3 py-1.5 rounded-lg flex items-center gap-1.5 self-start sm:self-auto transition-colors"
+            >
+              {showAddAnswer ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+              {showAddAnswer ? 'Cancel' : '+ Add Question & Answer'}
+            </button>
+          </div>
+
+          {/* Add New Question & Answer Panel */}
+          {showAddAnswer && (
+            <div className="p-4 rounded-xl bg-surface-300/80 border border-brand-500/40 space-y-3 shadow-glow animate-in fade-in duration-200">
+              <span className="text-xs font-semibold text-brand-300 font-mono block">
+                Add Screening Question & Reusable Response
+              </span>
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  placeholder="Question (e.g. Are you legally authorized to work in the United States?)..."
+                  value={newQuestion}
+                  onChange={(e) => setNewQuestion(e.target.value)}
+                  className="w-full bg-surface-400 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500/50"
+                />
+                <textarea
+                  rows={3}
+                  placeholder="Your verified answer (e.g. Yes, I am legally authorized to work in the United States without restrictions.)..."
+                  value={newAnswer}
+                  onChange={(e) => setNewAnswer(e.target.value)}
+                  className="w-full bg-surface-400 border border-white/10 rounded-lg px-3 py-2 text-xs text-emerald-300 font-mono placeholder-zinc-500 focus:outline-none focus:border-brand-500/50"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddAnswer(false)}
+                  className="text-xs font-mono text-zinc-400 hover:text-white px-3 py-1 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={savingNew || !newQuestion.trim() || !newAnswer.trim()}
+                  onClick={handleCreateAnswer}
+                  className="text-xs font-mono bg-brand-500 hover:bg-brand-400 text-white font-medium px-4 py-1.5 rounded-lg flex items-center gap-1.5 disabled:opacity-50 transition-colors shadow-sm"
+                >
+                  {savingNew ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  Save to Knowledge Bank
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Answers List */}
+          <div className="space-y-3">
+            {answersList.length === 0 ? (
+              <div className="p-8 text-center text-zinc-500 text-xs font-mono rounded-xl bg-surface-300/20 border border-white/5">
+                No screening questions saved yet. Click "+ Add Question & Answer" to seed your bank.
+              </div>
+            ) : (
+              answersList.map((ans: any) => {
+                const isEditing = editingId === ans.id;
+
+                if (isEditing) {
+                  return (
+                    <div
+                      key={ans.id}
+                      className="p-4 rounded-xl bg-surface-300/80 border border-brand-500/40 space-y-3"
+                    >
+                      <span className="text-[10px] font-mono text-brand-400 uppercase tracking-wider block">
+                        Edit Question & Response
+                      </span>
+                      <input
+                        type="text"
+                        value={editQuestion}
+                        onChange={(e) => setEditQuestion(e.target.value)}
+                        className="w-full bg-surface-400 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500/50"
+                      />
+                      <textarea
+                        rows={3}
+                        value={editAnswer}
+                        onChange={(e) => setEditAnswer(e.target.value)}
+                        className="w-full bg-surface-400 border border-white/10 rounded-lg px-3 py-2 text-xs text-emerald-300 font-mono focus:outline-none focus:border-brand-500/50"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(null)}
+                          className="text-xs font-mono text-zinc-400 hover:text-white px-3 py-1 rounded"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={savingEdit}
+                          onClick={() => handleSaveEdit(ans.id)}
+                          className="text-xs font-mono bg-brand-500 hover:bg-brand-400 text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"
+                        >
+                          {savingEdit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={ans.id}
+                    className="p-4 rounded-xl bg-surface-300/40 border border-white/5 space-y-2 hover:border-brand-500/20 transition-all group"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <span className="text-xs font-semibold text-zinc-200 font-sans leading-relaxed">
+                          {ans.question_text}
+                        </span>
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <span className="text-[9px] font-mono text-zinc-500">
+                            ID: {ans.question_canonical || 'custom'}
+                          </span>
+                          {ans.source && (
+                            <span className="text-[9px] font-mono text-zinc-500 bg-white/5 px-1 rounded">
+                              {ans.source}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40 flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" /> Verified
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(ans)}
+                          className="text-zinc-400 hover:text-brand-300 p-1 rounded hover:bg-white/5 transition-colors"
+                          title="Edit question & answer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAnswer(ans.id)}
+                          className="text-zinc-500 hover:text-rose-400 p-1 rounded hover:bg-white/5 transition-colors"
+                          title="Delete from memory"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-emerald-300 font-mono bg-emerald-950/20 p-2.5 rounded-lg border border-emerald-500/20 leading-relaxed">
+                      "{ans.answer_text}"
+                    </p>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 

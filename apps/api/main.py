@@ -82,6 +82,21 @@ class PrepareApplicationRequest(BaseModel):
 
 class ApproveApplicationRequest(BaseModel):
     user_notes: Optional[str] = None
+    answers: Optional[List[Dict[str, Any]]] = None
+
+
+class CreateAnswerRequest(BaseModel):
+    question_text: str
+    answer_text: str
+    question_canonical: Optional[str] = None
+    source: Optional[str] = "USER_INPUT"
+
+
+class UpdateAnswerRequest(BaseModel):
+    question_text: Optional[str] = None
+    answer_text: Optional[str] = None
+    question_canonical: Optional[str] = None
+    is_verified: Optional[bool] = None
 
 
 class AICommandRequest(BaseModel):
@@ -236,6 +251,56 @@ async def get_answers(db: AsyncSession = Depends(get_db)):
     return answers
 
 
+@app.post("/api/profile/answers")
+async def create_answer(req: CreateAnswerRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        ans = await ProfileService.save_or_update_answer(
+            db,
+            question_text=req.question_text,
+            answer_text=req.answer_text,
+            question_canonical=req.question_canonical,
+            source=req.source or "USER_INPUT",
+        )
+        return ans
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/profile/answers/{answer_id}")
+async def update_answer_endpoint(
+    answer_id: str, req: UpdateAnswerRequest, db: AsyncSession = Depends(get_db)
+):
+    try:
+        ans = await ProfileService.update_answer(
+            db,
+            answer_id=answer_id,
+            question_text=req.question_text,
+            answer_text=req.answer_text,
+            question_canonical=req.question_canonical,
+            is_verified=req.is_verified,
+        )
+        if not ans:
+            raise HTTPException(status_code=404, detail=f"Answer {answer_id} not found")
+        return ans
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/profile/answers/{answer_id}")
+async def delete_answer_endpoint(answer_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        success = await ProfileService.delete_answer(db, answer_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Answer {answer_id} not found")
+        return {"deleted": True, "id": answer_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/opportunities")
 async def list_opportunities(
     status: Optional[str] = Query(None),
@@ -307,6 +372,20 @@ async def approve_application(
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        if req.answers:
+            for a in req.answers:
+                q_text = a.get("question_text", "").strip()
+                a_text = a.get("answer_text", "").strip()
+                canon = a.get("question_canonical")
+                if q_text and a_text:
+                    await ProfileService.save_or_update_answer(
+                        db,
+                        question_text=q_text,
+                        answer_text=a_text,
+                        question_canonical=canon,
+                        source="APPLICATION_REVIEW",
+                    )
+
         sub = await app_service.approve_and_submit(db, application_id, user_notes=req.user_notes)
         return sub
     except Exception as e:

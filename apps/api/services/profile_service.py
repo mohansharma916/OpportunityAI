@@ -3,6 +3,8 @@ OpportunityOS — Candidate Profile & Knowledge Base Service
 """
 
 import uuid
+import re
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -283,6 +285,95 @@ class ProfileService:
 
     @staticmethod
     async def get_verified_answers(db: AsyncSession) -> List[ApplicationAnswerModel]:
-        stmt = select(ApplicationAnswerModel)
+        stmt = select(ApplicationAnswerModel).order_by(ApplicationAnswerModel.last_verified.desc())
         res = await db.execute(stmt)
         return list(res.scalars().all())
+
+    @staticmethod
+    def canonicalize_question(text: str) -> str:
+        clean = re.sub(r'[^a-zA-Z0-9]+', '_', text.lower()).strip('_')
+        return clean[:100] or "custom_question"
+
+    @staticmethod
+    async def save_or_update_answer(
+        db: AsyncSession,
+        question_text: str,
+        answer_text: str,
+        question_canonical: Optional[str] = None,
+        source: str = "USER_INPUT",
+    ) -> ApplicationAnswerModel:
+        if not question_canonical or not question_canonical.strip():
+            question_canonical = ProfileService.canonicalize_question(question_text)
+
+        stmt = select(ApplicationAnswerModel).where(
+            (ApplicationAnswerModel.question_canonical == question_canonical) |
+            (ApplicationAnswerModel.question_text == question_text.strip())
+        )
+        res = await db.execute(stmt)
+        existing = res.scalar_one_or_none()
+
+        if existing:
+            existing.answer_text = answer_text.strip()
+            existing.question_text = question_text.strip()
+            existing.is_verified = True
+            existing.last_verified = datetime.utcnow()
+            existing.source = source
+            await db.commit()
+            await db.refresh(existing)
+            return existing
+        else:
+            new_ans = ApplicationAnswerModel(
+                id=str(uuid.uuid4()),
+                question_canonical=question_canonical,
+                question_text=question_text.strip(),
+                answer_text=answer_text.strip(),
+                is_verified=True,
+                confidence=1.0,
+                source=source,
+                last_verified=datetime.utcnow(),
+            )
+            db.add(new_ans)
+            await db.commit()
+            await db.refresh(new_ans)
+            return new_ans
+
+    @staticmethod
+    async def update_answer(
+        db: AsyncSession,
+        answer_id: str,
+        question_text: Optional[str] = None,
+        answer_text: Optional[str] = None,
+        question_canonical: Optional[str] = None,
+        is_verified: Optional[bool] = None,
+    ) -> Optional[ApplicationAnswerModel]:
+        stmt = select(ApplicationAnswerModel).where(ApplicationAnswerModel.id == answer_id)
+        res = await db.execute(stmt)
+        existing = res.scalar_one_or_none()
+        if not existing:
+            return None
+
+        if question_text is not None:
+            existing.question_text = question_text.strip()
+        if answer_text is not None:
+            existing.answer_text = answer_text.strip()
+        if question_canonical is not None:
+            existing.question_canonical = question_canonical.strip()
+        if is_verified is not None:
+            existing.is_verified = is_verified
+
+        existing.last_verified = datetime.utcnow()
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    @staticmethod
+    async def delete_answer(db: AsyncSession, answer_id: str) -> bool:
+        stmt = select(ApplicationAnswerModel).where(ApplicationAnswerModel.id == answer_id)
+        res = await db.execute(stmt)
+        existing = res.scalar_one_or_none()
+        if not existing:
+            return False
+
+        await db.delete(existing)
+        await db.commit()
+        return True

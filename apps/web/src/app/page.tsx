@@ -406,6 +406,7 @@ export default function OpportunityOSApp() {
               profile={profile}
               verifiedAnswers={verifiedAnswers}
               onRestartOnboarding={() => setShowOnboarding(true)}
+              onUpdateAnswers={loadData}
             />
           )}
         </div>
@@ -430,8 +431,10 @@ export default function OpportunityOSApp() {
       {selectedApplication && (
         <ApplicationReviewModal
           application={selectedApplication}
+          verifiedAnswers={verifiedAnswers}
           onClose={() => setSelectedApplication(null)}
           onSubmitted={loadData}
+          onUpdateAnswers={loadData}
         />
       )}
 
