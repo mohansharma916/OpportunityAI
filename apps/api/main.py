@@ -34,6 +34,7 @@ async def lifespan(app: FastAPI):
     # Seed initial candidate profile & baseline opportunities if empty
     async for db in get_db():
         profile = await ProfileService.get_or_create_profile(db)
+        await AuthService.get_or_create_demo_user(db)
         opp_stmt = select(OpportunityModel).limit(1)
         opp_res = await db.execute(opp_stmt)
         if not opp_res.scalar_one_or_none():
@@ -53,7 +54,13 @@ app = FastAPI(
 # Enable CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
