@@ -16,6 +16,7 @@ import {
   Zap,
   LogOut,
   Globe,
+  Share2,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 import { Navigation } from '@/components/Navigation';
@@ -35,6 +36,7 @@ import { AuthScreen } from '@/components/AuthScreen';
 import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { AutonomousCrawlerView } from '@/components/AutonomousCrawlerView';
 import { ApplicationsTrackerView } from '@/components/ApplicationsTrackerView';
+import { LinkedInGrowthAgentView } from '@/components/LinkedInGrowthAgentView';
 
 export default function OpportunityOSApp() {
   const [currentTab, setCurrentTab] = useState('dashboard');
@@ -246,6 +248,14 @@ export default function OpportunityOSApp() {
             </div>
 
             <button
+              onClick={() => setCurrentTab('linkedin')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-xs font-semibold text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 transition-all shadow-sm"
+            >
+              <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+              <span>LinkedIn Agent</span>
+            </button>
+
+            <button
               onClick={() => setCurrentTab('crawler')}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 text-xs font-semibold text-brand-300 border border-brand-500/30 hover:border-brand-500/50 transition-all shadow-sm"
             >
@@ -342,6 +352,13 @@ export default function OpportunityOSApp() {
                 onAutoApply={handleAutoApply}
               />
             </div>
+          )}
+
+          {currentTab === 'linkedin' && (
+            <LinkedInGrowthAgentView
+              onRefreshAllData={loadData}
+              profile={profile}
+            />
           )}
 
           {currentTab === 'crawler' && (

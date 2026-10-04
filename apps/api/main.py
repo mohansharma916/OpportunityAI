@@ -25,6 +25,7 @@ from apps.api.services.auto_apply_service import AutoApplyService
 from apps.api.services.auth_service import AuthService
 from apps.api.services.onboarding_service import OnboardingService
 from apps.api.services.crawler_service import CrawlerService
+from apps.api.services.linkedin_growth_service import LinkedInGrowthService
 from apps.api.models import OpportunityModel, ResumeVariantModel, UserModel
 
 
@@ -202,6 +203,36 @@ class ParseResumeRequest(BaseModel):
 class CompleteOnboardingRequest(BaseModel):
     user_id: str
     verified_data: Dict[str, Any]
+
+
+class ApplyProfileOptRequest(BaseModel):
+    field: str
+    value: str
+
+
+class GeneratePostRequest(BaseModel):
+    post_type: Optional[str] = "TECHNICAL_BREAKDOWN"
+    topic_pillar: Optional[str] = "Technical Deep-Dives"
+    custom_topic: Optional[str] = None
+    source_context: Optional[str] = None
+
+
+class GenerateKnowledgePostRequest(BaseModel):
+    knowledge_input: str
+    source_type: Optional[str] = "GITHUB_COMMIT"
+
+
+class UpdateRelationshipStageRequest(BaseModel):
+    stage: str
+
+
+class DecideActionRequest(BaseModel):
+    decision: str  # APPROVE, EDIT, REJECT, LATER
+    edited_payload: Optional[Dict[str, Any]] = None
+
+
+class LinkedInCommandRequest(BaseModel):
+    prompt: str
 
 
 # -------------------------------------------------------------------
@@ -732,3 +763,156 @@ async def list_resumes(db: AsyncSession = Depends(get_db)):
     stmt = select(ResumeVariantModel).order_by(ResumeVariantModel.generated_at.desc())
     res = await db.execute(stmt)
     return list(res.scalars().all())
+
+
+# -------------------------------------------------------------------
+# LinkedIn AI Growth Agent Endpoints
+# -------------------------------------------------------------------
+
+@app.get("/api/linkedin/dashboard")
+async def get_linkedin_dashboard(db: AsyncSession = Depends(get_db)):
+    try:
+        overview = await LinkedInGrowthService.get_dashboard_overview(db)
+        return overview
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/profile-optimizer")
+async def get_profile_optimizer(db: AsyncSession = Depends(get_db)):
+    try:
+        data = await LinkedInGrowthService.analyze_and_optimize_profile(db)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/profile-optimizer/apply")
+async def apply_profile_opt(req: ApplyProfileOptRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        res = await LinkedInGrowthService.apply_profile_recommendation(db, req.field, req.value)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/brand-strategy")
+async def get_brand_strategy_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        data = await LinkedInGrowthService.get_brand_strategy(db)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/content")
+async def get_linkedin_content(db: AsyncSession = Depends(get_db)):
+    try:
+        posts = await LinkedInGrowthService.list_content_posts(db)
+        return posts
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/content/generate")
+async def generate_linkedin_post(req: GeneratePostRequest = GeneratePostRequest(), db: AsyncSession = Depends(get_db)):
+    try:
+        post = await LinkedInGrowthService.generate_post(
+            db,
+            post_type=req.post_type or "TECHNICAL_BREAKDOWN",
+            topic_pillar=req.topic_pillar or "Technical Deep-Dives",
+            custom_topic=req.custom_topic,
+            source_context=req.source_context,
+        )
+        return post
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/content/from-knowledge")
+async def generate_post_from_knowledge_endpoint(req: GenerateKnowledgePostRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        post = await LinkedInGrowthService.generate_post_from_knowledge(
+            db,
+            knowledge_input=req.knowledge_input,
+            source_type=req.source_type or "GITHUB_COMMIT",
+        )
+        return post
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/relationships")
+async def get_relationships_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        data = await LinkedInGrowthService.list_relationships(db)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/linkedin/relationships/{relationship_id}/stage")
+async def update_relationship_stage_endpoint(
+    relationship_id: str, req: UpdateRelationshipStageRequest, db: AsyncSession = Depends(get_db)
+):
+    try:
+        res = await LinkedInGrowthService.update_relationship_stage(db, relationship_id, req.stage)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/comment-opportunities")
+async def get_comment_opportunities_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        data = await LinkedInGrowthService.list_comment_opportunities(db)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/companies")
+async def get_target_companies_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        data = await LinkedInGrowthService.list_target_companies(db)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/actions/approvals")
+async def get_pending_actions_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        actions = await LinkedInGrowthService.list_pending_actions(db)
+        return actions
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/actions/{action_id}/decide")
+async def decide_action_endpoint(action_id: str, req: DecideActionRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        res = await LinkedInGrowthService.decide_action(
+            db, action_id, req.decision, req.edited_payload
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/agent/run-cycle")
+async def run_agent_planner_cycle_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        cycle_res = await LinkedInGrowthService.run_agent_planner_cycle(db)
+        return cycle_res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/command")
+async def run_linkedin_command_endpoint(req: LinkedInCommandRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        res = await LinkedInGrowthService.process_natural_language_command(db, req.prompt)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -16,6 +16,7 @@ import {
   Zap,
   LogOut,
   Globe,
+  Share2,
 } from 'lucide-react';
 
 interface NavigationProps {
@@ -29,6 +30,7 @@ interface NavigationProps {
 export function Navigation({ currentTab, onSelectTab, automationLevel, user, onLogout }: NavigationProps) {
   const navItems = [
     { id: 'dashboard', label: 'Command Center', icon: Compass },
+    { id: 'linkedin', label: 'LinkedIn AI Agent', icon: Share2 },
     { id: 'crawler', label: 'Auto Crawler', icon: Globe },
     { id: 'opportunities', label: 'Opportunities', icon: Briefcase },
     { id: 'applications', label: 'Applications', icon: Send },

@@ -354,3 +354,194 @@ class CrawlerScheduleModel(Base):
     last_run_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+# -------------------------------------------------------------------
+# LinkedIn AI Growth Agent Models
+# -------------------------------------------------------------------
+
+class LinkedInProfileIntelligenceModel(Base):
+    __tablename__ = "linkedin_profile_intelligences"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False, unique=True)
+    overall_score = Column(Float, default=74.0)
+    headline_score = Column(Float, default=72.0)
+    about_score = Column(Float, default=68.0)
+    experience_score = Column(Float, default=82.0)
+    skills_score = Column(Float, default=64.0)
+    projects_score = Column(Float, default=88.0)
+    recruiter_discoverability_score = Column(Float, default=70.0)
+
+    # Concrete optimization recommendations
+    headline_current = Column(Text, nullable=True)
+    headline_suggested = Column(Text, nullable=True)
+    about_current = Column(Text, nullable=True)
+    about_suggested = Column(Text, nullable=True)
+    recommendations = Column(JSON, default=list)
+
+    # Strategic configuration
+    target_audience = Column(JSON, default=lambda: ["Recruiters", "Engineering Managers", "CTOs", "Founders"])
+    target_geographies = Column(JSON, default=lambda: ["United States", "Europe", "India", "Remote Worldwide"])
+    tone_preference = Column(String(50), default="Technical & Authoritative")
+    content_preferences = Column(JSON, default=lambda: ["System Design", "Engineering Lessons", "Architecture", "Open Source"])
+
+    # Personal Writing Style & Voice
+    writing_style = Column(JSON, default=lambda: {
+        "formality": "Professional yet conversational",
+        "sentence_length": "Punchy and direct",
+        "technical_depth": "High - architecture & code level",
+        "emoji_usage": "Minimal / Structured",
+        "storytelling": "Engineering problem -> real root cause -> architectural resolution"
+    })
+    writing_samples = Column(JSON, default=list)
+
+    # Strategy Roadmaps & Topic Pillars
+    topic_pillars = Column(JSON, default=lambda: [
+        {"name": "Technical Deep-Dives", "percentage": 40, "color": "blue"},
+        {"name": "Real Engineering Experiences", "percentage": 20, "color": "emerald"},
+        {"name": "System Design & Architecture", "percentage": 15, "color": "purple"},
+        {"name": "Career & Engineering Lessons", "percentage": 10, "color": "amber"},
+        {"name": "Open-Source & Projects", "percentage": 10, "color": "cyan"},
+        {"name": "Personal Professional Insights", "percentage": 5, "color": "rose"},
+    ])
+    seven_day_plan = Column(JSON, default=list)
+    thirty_day_plan = Column(JSON, default=list)
+    ninety_day_plan = Column(JSON, default=list)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LinkedInContentPostModel(Base):
+    __tablename__ = "linkedin_content_posts"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    content_text = Column(Text, nullable=False)
+    post_type = Column(String(50), default="TECHNICAL_BREAKDOWN")  # TECHNICAL_BREAKDOWN, CASE_STUDY, ARCHITECTURE_LESSON, MINI_TUTORIAL, LESSONS_LEARNED, POLL_IDEA
+    topic_pillar = Column(String(100), default="Technical Deep-Dives")
+    grounded_sources = Column(JSON, default=list)  # e.g., ["GitHub Commit: Implemented Redis distributed lock", "Production Incident #402"]
+    quality_checks = Column(JSON, default=lambda: {
+        "fact_check_passed": True,
+        "confidential_data_cleared": True,
+        "tone_aligned": True,
+        "anti_generic_score": 94,
+        "originality_score": 96
+    })
+    status = Column(String(50), default="DRAFT")  # DRAFT, SCHEDULED, APPROVAL_REQUIRED, PUBLISHED, SKIPPED
+    scheduled_at = Column(DateTime, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    metrics = Column(JSON, default=lambda: {
+        "impressions": 0,
+        "comments": 0,
+        "meaningful_replies": 0,
+        "inbound_opportunities": 0
+    })
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LinkedInRelationshipModel(Base):
+    __tablename__ = "linkedin_relationships"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    company = Column(String(255), nullable=False)
+    role = Column(String(255), nullable=False)
+    headline = Column(Text, nullable=True)
+    avatar_url = Column(String(500), nullable=True)
+    linkedin_url = Column(String(500), nullable=True)
+    category = Column(String(50), default="ENGINEERING_LEADER")  # RECRUITER, HIRING_MANAGER, CTO, ENGINEERING_LEADER, FOUNDER, PEER_ENGINEER
+    relationship_score = Column(Float, default=85.0)  # 0-100
+    relationship_stage = Column(String(50), default="DISCOVERED")  # DISCOVERED, INTERESTING, CONNECTION_PROPOSED, CONNECTED, CONVERSATION_STARTED, WARM_RELATIONSHIP, OPPORTUNITY, INACTIVE
+    score_reasons = Column(JSON, default=list)
+    why_connect = Column(Text, nullable=True)
+    potential_conversation_topic = Column(Text, nullable=True)
+    suggested_connection_message = Column(Text, nullable=True)
+    connection_sent_at = Column(DateTime, nullable=True)
+    connected_at = Column(DateTime, nullable=True)
+    last_interaction_at = Column(DateTime, nullable=True)
+    conversation_summary = Column(Text, nullable=True)
+    topics_discussed = Column(JSON, default=list)
+    follow_up_recommendation = Column(Text, nullable=True)
+    next_action = Column(String(255), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LinkedInConversationModel(Base):
+    __tablename__ = "linkedin_conversations"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False)
+    relationship_id = Column(String(36), ForeignKey("linkedin_relationships.id", ondelete="CASCADE"), nullable=False)
+    participant_name = Column(String(255), nullable=False)
+    participant_role = Column(String(255), nullable=False)
+    classification = Column(String(50), default="JOB_OPPORTUNITY")  # RECRUITER, JOB_OPPORTUNITY, CLIENT, COLLABORATION, NETWORKING, TECHNICAL_DISCUSSION, SALES, SPAM
+    messages = Column(JSON, default=list)
+    suggested_reply = Column(Text, nullable=True)
+    requires_human_approval = Column(Boolean, default=True)  # True for salary, job commitments, interview scheduling
+    follow_up_due_at = Column(DateTime, nullable=True)
+    follow_up_status = Column(String(50), default="PENDING")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LinkedInCommentOpportunityModel(Base):
+    __tablename__ = "linkedin_comment_opportunities"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False)
+    post_author = Column(String(255), nullable=False)
+    post_author_role = Column(String(255), nullable=False)
+    post_author_company = Column(String(255), nullable=False)
+    post_url = Column(String(500), nullable=True)
+    post_topic = Column(String(255), nullable=False)
+    post_snippet = Column(Text, nullable=False)
+    relevance_score = Column(Float, default=90.0)
+    expertise_fit_score = Column(Float, default=92.0)
+    suggested_comment = Column(Text, nullable=False)
+    status = Column(String(50), default="SUGGESTED")  # SUGGESTED, APPROVED, POSTED, DISMISSED
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LinkedInAgentActionModel(Base):
+    __tablename__ = "linkedin_agent_actions"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False)
+    action_type = Column(String(50), nullable=False)  # CONNECTION_RECOMMENDATION, CONTENT_PUBLISH, CONVERSATION_REPLY, FOLLOW_UP_TRIGGER, COMMENT_OPPORTUNITY, PROFILE_UPDATE, NO_ACTION
+    target_id = Column(String(255), nullable=True)
+    target_name = Column(String(255), nullable=True)
+    expected_value = Column(Float, default=0.85)  # 0.0 - 1.0
+    risk_score = Column(Float, default=0.10)      # 0.0 - 1.0
+    execution_mode = Column(String(50), default="COPILOT")  # AUTOPILOT, COPILOT, MANUAL
+    approval_status = Column(String(50), default="PENDING_APPROVAL")  # AUTO, PENDING_APPROVAL, APPROVED, REJECTED, BLOCKED, EXECUTED
+    policy_check_passed = Column(Boolean, default=True)
+    risk_assessment_passed = Column(Boolean, default=True)
+    action_payload = Column(JSON, default=dict)
+    reasoning = Column(Text, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    executed_at = Column(DateTime, nullable=True)
+
+
+class TargetCompanyIntelligenceModel(Base):
+    __tablename__ = "target_company_intelligences"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    profile_id = Column(String(36), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False)
+    company_name = Column(String(255), nullable=False)
+    domain = Column(String(255), nullable=True)
+    industry = Column(String(100), default="Technology")
+    target_priority = Column(String(50), default="HIGH")  # HIGH, MEDIUM, LOW
+    open_roles = Column(JSON, default=list)
+    key_leaders = Column(JSON, default=list)
+    recruiters = Column(JSON, default=list)
+    tech_stack = Column(JSON, default=list)
+    networking_plan = Column(JSON, default=list)
+    status = Column(String(50), default="ACTIVE")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
