@@ -26,7 +26,7 @@ from packages.domain.models import (
 
 class ProfileService:
     @staticmethod
-    async def get_or_create_profile(db: AsyncSession) -> CandidateProfileModel:
+    async def get_or_create_profile(db: AsyncSession, seed_if_empty: bool = False) -> Optional[CandidateProfileModel]:
         stmt = (
             select(CandidateProfileModel)
             .options(
@@ -34,12 +34,13 @@ class ProfileService:
                 selectinload(CandidateProfileModel.knowledge_items),
                 selectinload(CandidateProfileModel.work_experiences),
             )
+            .order_by(CandidateProfileModel.created_at.desc())
             .limit(1)
         )
         res = await db.execute(stmt)
         profile = res.scalar_one_or_none()
 
-        if profile:
+        if profile or not seed_if_empty:
             return profile
 
         # Seed initial rich profile
@@ -208,8 +209,10 @@ class ProfileService:
         return await ProfileService.get_or_create_profile(db)
 
     @staticmethod
-    async def get_domain_profile(db: AsyncSession) -> CandidateProfile:
+    async def get_domain_profile(db: AsyncSession) -> Optional[CandidateProfile]:
         model = await ProfileService.get_or_create_profile(db)
+        if not model:
+            return None
         skills = [
             CandidateSkill(
                 id=s.id,

@@ -78,20 +78,20 @@ export function OnboardingWizard({ user, onCompleted, onSignOut }: OnboardingWiz
   };
 
   const sampleResume = `
-Alex Morgan
-Staff Full Stack & Distributed Systems Architect
-alex.morgan.dev@gmail.com | San Francisco, CA / Remote
-Summary: Over 8 years architecting resilient distributed systems and real-time collaboration applications using React, TypeScript, Python, FastAPI, and PostgreSQL.
+${user?.full_name || 'Senior Software Engineer'}
+Staff Full Stack & Cloud Systems Architect
+${user?.email || 'candidate@example.com'} | Remote / Worldwide
+Summary: Over 8 years architecting resilient distributed systems, real-time collaboration engines, and cloud microservices using React, TypeScript, Python, FastAPI, and PostgreSQL.
 Skills: React, TypeScript, Python, FastAPI, PostgreSQL, Docker, Temporal, Redis, Playwright, Kubernetes, AWS
 Key Accomplishments:
-- Reduced legacy frontend load time by 42% via Next.js server components and edge caching.
+- Reduced legacy frontend load time by 42% via modern edge caching and optimized component pipelines.
 - Architected real-time distributed workflow engine handling 100k+ asynchronous events daily with zero downtime.
-- Engineered unified Playwright regression test suite cutting production deployment bugs by 68%.
+- Engineered unified automated regression test suite cutting production deployment bugs by 68%.
 Work Experience:
-- Loomis Cloud Systems | Staff Software Engineer (2022 - Present)
-Led core platform architecture processing 40M+ telemetry signals daily.
-- Hyperion Technologies | Senior Full Stack Engineer (2019 - 2022)
-Engineered high-throughput financial collaboration dashboards used by 80k+ enterprise users.
+- Cloud Platform Systems | Staff Software Engineer (2022 - Present)
+Led core platform architecture processing high-throughput telemetry signals daily.
+- Distributed Tech Labs | Senior Full Stack Engineer (2019 - 2022)
+Engineered high-throughput collaboration dashboards used by enterprise users worldwide.
 `;
 
   const handleParseResume = async () => {

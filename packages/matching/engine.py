@@ -35,11 +35,24 @@ class MatchingEngine:
     def __init__(self):
         pass
 
-    def evaluate(self, profile: CandidateProfile, opportunity: Opportunity) -> MatchingScore:
+    def evaluate(self, profile: Optional[CandidateProfile], opportunity: Opportunity) -> MatchingScore:
         """
         Evaluate candidate fit across technical, seniority, remote, timezone,
         and compensation dimensions.
         """
+        if not profile:
+            return MatchingScore(
+                opportunity_id=opportunity.id,
+                overall_match_score=50.0,
+                technical_match=50.0,
+                seniority_match=50.0,
+                domain_match=50.0,
+                compensation_match=50.0,
+                remote_timezone_match=50.0,
+                recommendation=MatchRecommendation.NEUTRAL,
+                match_rationale="Candidate profile pending onboarding verification.",
+            )
+
         tech_score, transferable, primary_strengths, primary_gaps = self._evaluate_technical(profile, opportunity)
         exp_score = self._evaluate_experience(profile, opportunity)
         remote_score = self._evaluate_remote(profile, opportunity)

@@ -18,74 +18,49 @@ from packages.domain.models import Opportunity, OpportunityType, RemoteType, Pip
 class HackerNewsConnector(OpportunitySource):
     source_name: str = "HACKER_NEWS"
 
-    # Curated real-world mock data for offline/standalone execution + live thread support
-    SAMPLE_POSTINGS = [
-        {
-            "id": "hn-410291",
-            "company": "Supabase",
-            "title": "Senior Cloud Infrastructure / Distributed Systems Engineer",
-            "body": "Supabase | Remote (Worldwide) | Full-time | $160k - $210k + Equity | Tech Stack: Go, PostgreSQL, Elixir, Docker, Kubernetes, AWS. We are building the open source Firebase alternative. Looking for engineers who love systems performance, databases, and high availability.",
-            "url": "https://news.ycombinator.com/item?id=410291",
-            "skills": ["Go", "PostgreSQL", "Docker", "Kubernetes", "AWS"],
-            "salary_min": 160000,
-            "salary_max": 210000,
-            "type": OpportunityType.FULL_TIME,
-        },
-        {
-            "id": "hn-410292",
-            "company": "Vercel",
-            "title": "Staff Frontend / Next.js Framework Architect",
-            "body": "Vercel | Remote (US / EU / Worldwide) | Full-time | $190k - $240k | Looking for an expert in Next.js, React, TypeScript, and Turbopack. You will shape the future of web rendering performance and developer tooling.",
-            "url": "https://news.ycombinator.com/item?id=410292",
-            "skills": ["Next.js", "React", "TypeScript", "Node.js", "Web Performance"],
-            "salary_min": 190000,
-            "salary_max": 240000,
-            "type": OpportunityType.FULL_TIME,
-        },
-        {
-            "id": "hn-410293",
-            "company": "Axiom AI",
-            "title": "Founding Full Stack Engineer (React + Python/FastAPI)",
-            "body": "Axiom AI | San Francisco / Remote | Contract-to-Hire or Full-Time | $90 - $130/hr or $175k | Building autonomous AI workflows for browser automation and enterprise data pipelines. Stack: React, TypeScript, FastAPI, Python, Playwright, PostgreSQL, Redis.",
-            "url": "https://news.ycombinator.com/item?id=410293",
-            "skills": ["React", "FastAPI", "Python", "Playwright", "PostgreSQL", "Redis"],
-            "hourly_rate": 110.0,
-            "salary_min": 175000,
-            "type": OpportunityType.FOUNDING_ENGINEER,
-        },
-        {
-            "id": "hn-410294",
-            "company": "PostHog",
-            "title": "Full Stack Analytics Engineer (Python, React, ClickHouse)",
-            "body": "PostHog | 100% Remote Worldwide | Full-time | $150k - $190k + generous stock | Open source product analytics. We operate transparently in public. Seeking engineers skilled in React, TypeScript, Python, and scalable data systems.",
-            "url": "https://news.ycombinator.com/item?id=410294",
-            "skills": ["React", "TypeScript", "Python", "ClickHouse", "PostgreSQL"],
-            "salary_min": 150000,
-            "salary_max": 190000,
-            "type": OpportunityType.FULL_TIME,
-        },
-    ]
-
     async def discover(self, criteria: Optional[SearchCriteria] = None) -> List[RawListing]:
         results: List[RawListing] = []
-        for sample in self.SAMPLE_POSTINGS:
-            # Simple keyword matching if criteria provided
-            if criteria and criteria.technologies:
-                skills_low = [s.lower() for s in sample["skills"]]
-                if not any(t.lower() in skills_low for t in criteria.technologies):
-                    continue
+        headers = {"User-Agent": "OpportunityOS-Autonomous-Agent/1.0"}
 
-            results.append(
-                RawListing(
-                    source=self.source_name,
-                    external_id=sample["id"],
-                    url=sample["url"],
-                    raw_title=sample["title"],
-                    raw_company=sample["company"],
-                    raw_body=sample["body"],
-                    raw_metadata=sample,
-                )
-            )
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                res = await client.get("https://hacker-news.firebaseio.com/v0/jobstories.json", headers=headers)
+                if res.status_code == 200:
+                    story_ids = res.json()[:10]
+                    for sid in story_ids:
+                        try:
+                            s_res = await client.get(f"https://hacker-news.firebaseio.com/v0/item/{sid}.json", headers=headers)
+                            if s_res.status_code == 200:
+                                item = s_res.json()
+                                if not item:
+                                    continue
+                                raw_title = item.get("title", "Software Engineering Opportunity")
+                                # Extract company name from title pattern if present
+                                company = "Hacker News Hiring"
+                                if "is hiring" in raw_title.lower():
+                                    company = raw_title.lower().split("is hiring")[0].strip().title()
+                                elif "(" in raw_title:
+                                    company = raw_title.split("(")[0].strip()
+
+                                raw_body = item.get("text") or raw_title
+                                clean_body = re.sub(r"<[^>]+>", " ", raw_body)
+
+                                results.append(
+                                    RawListing(
+                                        source=self.source_name,
+                                        external_id=f"hn-{sid}",
+                                        url=item.get("url") or f"https://news.ycombinator.com/item?id={sid}",
+                                        raw_title=raw_title,
+                                        raw_company=company or "HN Tech Company",
+                                        raw_body=clean_body[:1200],
+                                        raw_metadata=item,
+                                    )
+                                )
+                        except Exception:
+                            continue
+        except Exception:
+            pass
+
         return results
 
     async def normalize(self, raw: RawListing) -> Opportunity:

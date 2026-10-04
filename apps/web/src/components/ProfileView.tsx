@@ -36,7 +36,7 @@ export function ProfileView({ profile, verifiedAnswers, onRestartOnboarding }: P
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-cyan-500 flex items-center justify-center text-white font-bold text-xl shadow-glow">
-              AM
+              {profile.full_name ? profile.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'CP'}
             </div>
             <div>
               <div className="flex items-center gap-2">

@@ -18,41 +18,7 @@ from packages.domain.models import Opportunity, OpportunityType, RemoteType, Pip
 class RemoteTechConnector(OpportunitySource):
     source_name: str = "LIVE_WEB_REMOTE"
 
-    SAMPLE_JOBS = [
-        {
-            "id": "rt-101",
-            "company": "Linear",
-            "title": "Senior Product Systems Engineer (React, TypeScript)",
-            "body": "Linear is looking for a senior systems engineer to build high-performance, offline-tolerant real-time collaborative interfaces. You will work on desktop and web synchronization engines using TypeScript, React, and local-first SQLite.",
-            "url": "https://linear.app/careers/senior-systems-engineer",
-            "skills": ["React", "TypeScript", "WebSockets", "Performance", "SQLite"],
-            "salary_min": 170000,
-            "salary_max": 220000,
-            "type": OpportunityType.FULL_TIME,
-        },
-        {
-            "id": "rt-102",
-            "company": "Modal Labs",
-            "title": "Cloud Runtime & Infrastructure Architect (Python, Rust, Docker)",
-            "body": "Modal runs containerized AI workloads in the cloud with sub-second cold starts. We need engineers with deep container runtime, Linux kernel, and distributed Python experience to scale our infrastructure worldwide.",
-            "url": "https://modal.com/careers/infra-architect",
-            "skills": ["Python", "Docker", "Linux", "Distributed Systems", "Kubernetes"],
-            "salary_min": 190000,
-            "salary_max": 250000,
-            "type": OpportunityType.FULL_TIME,
-        },
-        {
-            "id": "rt-103",
-            "company": "Chronosphere",
-            "title": "Staff Observability & Distributed Tracing Engineer",
-            "body": "Chronosphere is hiring a Staff Engineer to architect petabyte-scale telemetry ingestion pipelines. Experience with Go, Kafka, OpenTelemetry, and high-throughput databases required.",
-            "url": "https://chronosphere.io/careers/staff-tracing",
-            "skills": ["Go", "Kafka", "Distributed Systems", "OpenTelemetry", "PostgreSQL"],
-            "salary_min": 185000,
-            "salary_max": 235000,
-            "type": OpportunityType.FULL_TIME,
-        },
-    ]
+
 
     async def discover(self, criteria: Optional[SearchCriteria] = None) -> List[RawListing]:
         results: List[RawListing] = []
@@ -121,23 +87,6 @@ class RemoteTechConnector(OpportunitySource):
         except Exception:
             pass
 
-        # If live web returned listings, return them!
-        if results:
-            return results
-
-        # Fallback to curated samples if completely offline
-        for sample in self.SAMPLE_JOBS:
-            results.append(
-                RawListing(
-                    source=self.source_name,
-                    external_id=sample["id"],
-                    url=sample["url"],
-                    raw_title=sample["title"],
-                    raw_company=sample["company"],
-                    raw_body=sample["body"],
-                    raw_metadata=sample,
-                )
-            )
         return results
 
     async def normalize(self, raw: RawListing) -> Opportunity:

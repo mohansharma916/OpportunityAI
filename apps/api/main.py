@@ -31,16 +31,6 @@ from apps.api.models import OpportunityModel, ResumeVariantModel, UserModel
 async def lifespan(app: FastAPI):
     # Initialize DB schema
     await init_db()
-    # Seed initial candidate profile & baseline opportunities if empty
-    async for db in get_db():
-        profile = await ProfileService.get_or_create_profile(db)
-        await AuthService.get_or_create_demo_user(db)
-        opp_stmt = select(OpportunityModel).limit(1)
-        opp_res = await db.execute(opp_stmt)
-        if not opp_res.scalar_one_or_none():
-            opp_svc = OpportunityService()
-            await opp_svc.run_discovery(db)
-        break
     yield
 
 
@@ -185,11 +175,10 @@ async def demo_login(db: AsyncSession = Depends(get_db)):
 @app.get("/api/auth/me")
 async def get_me(user_id: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)):
     if not user_id:
-        user = await AuthService.get_or_create_demo_user(db)
-    else:
-        user = await AuthService.get_user_by_id(db, user_id)
-        if not user:
-            user = await AuthService.get_or_create_demo_user(db)
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    user = await AuthService.get_user_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found.")
     return {
         "id": user.id,
         "email": user.email,

@@ -108,11 +108,11 @@ export function Navigation({ currentTab, onSelectTab, automationLevel, user, onL
       <div className="p-4 border-t border-white/5 bg-surface-400/60 flex items-center justify-between">
         <div className="flex items-center gap-3 overflow-hidden">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center font-bold text-xs text-white shrink-0">
-            {user?.full_name ? user.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'AM'}
+            {user?.full_name ? user.full_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'OP'}
           </div>
           <div className="overflow-hidden">
-            <p className="text-xs font-medium text-white truncate">{user?.full_name || 'Alex Morgan'}</p>
-            <p className="text-[11px] text-zinc-500 truncate">{user?.email || 'Staff Systems Architect'}</p>
+            <p className="text-xs font-medium text-white truncate">{user?.full_name || 'Candidate'}</p>
+            <p className="text-[11px] text-zinc-500 truncate">{user?.email || 'Active Account'}</p>
           </div>
         </div>
 

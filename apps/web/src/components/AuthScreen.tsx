@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Zap, Sparkles, ArrowRight, Lock, Mail, User, ShieldCheck, Loader2 } from 'lucide-react';
+import { Zap, Sparkles, ArrowRight, Lock, Mail, User, Loader2 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 
 interface AuthScreenProps {
@@ -41,18 +41,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     }
   };
 
-  const handleDemoLogin = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const user = await fetchApi<any>('/api/auth/demo', { method: 'POST' });
-      onAuthenticated(user);
-    } catch (err: any) {
-      setError(err.message || 'Demo login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   return (
     <div className="min-h-screen bg-background flex flex-col justify-center items-center p-6 relative overflow-hidden">
@@ -178,26 +167,6 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Access Divider */}
-          <div className="relative my-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/5" />
-            </div>
-            <div className="relative flex justify-center text-[10px] uppercase font-mono">
-              <span className="bg-surface-200 px-2 text-zinc-500">Or Instant Demo Access</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleDemoLogin}
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-xs font-medium text-zinc-200 transition-all flex items-center justify-center gap-2"
-          >
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Continue as Alex Morgan (Pre-seeded Profile)</span>
-          </button>
         </div>
 
         <p className="text-center text-[11px] text-zinc-500">

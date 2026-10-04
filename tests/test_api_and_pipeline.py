@@ -9,12 +9,16 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 from apps.api.main import app
-from apps.api.db import init_db, engine, Base
+from apps.api.db import init_db, engine, Base, get_db
+from apps.api.services.profile_service import ProfileService
 
 
 @pytest_asyncio.fixture(autouse=True)
 async def prepare_database():
     await init_db()
+    async for db in get_db():
+        await ProfileService.get_or_create_profile(db, seed_if_empty=True)
+        break
     yield
     # Cleanup after test suite
     async with engine.begin() as conn:

@@ -75,10 +75,22 @@ class CRMService:
         db: AsyncSession,
         opportunity_id: str,
         contact_id: str,
-        candidate_name: str = "Alex Morgan",
-        candidate_skills: str = "React, TypeScript & Python",
+        candidate_name: Optional[str] = None,
+        candidate_skills: Optional[str] = None,
     ) -> OutreachSequenceModel:
         """Create a respectful 3-step outreach & follow-up sequence."""
+        # Resolve real candidate details from DB profile
+        if not candidate_name or not candidate_skills:
+            from apps.api.models import CandidateProfileModel
+            prof_res = await db.execute(select(CandidateProfileModel).order_by(CandidateProfileModel.created_at.desc()).limit(1))
+            profile = prof_res.scalar_one_or_none()
+            if profile:
+                candidate_name = candidate_name or profile.full_name
+                candidate_skills = candidate_skills or "Full Stack & Cloud Systems"
+            else:
+                candidate_name = candidate_name or "Candidate"
+                candidate_skills = candidate_skills or "Software Engineering"
+
         # Fetch contact and opportunity
         contact_res = await db.execute(select(ContactModel).where(ContactModel.id == contact_id))
         contact = contact_res.scalar_one_or_none()
@@ -105,7 +117,7 @@ class CRMService:
             sequence_id=seq.id,
             step_number=1,
             channel="EMAIL",
-            subject=f"Regarding {opp_title} at {comp_name} — Alex Morgan",
+            subject=f"Regarding {opp_title} at {comp_name} — {candidate_name}",
             body=(
                 f"Hi {contact.full_name.split()[0] if contact else 'there'},\n\n"
                 f"I submitted an application for the {opp_title} opening at {comp_name} and wanted to reach out directly. "

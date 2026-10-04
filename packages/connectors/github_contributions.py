@@ -17,30 +17,7 @@ from packages.domain.models import Opportunity, OpportunityType, RemoteType, Pip
 class GitHubContributionConnector(OpportunitySource):
     source_name: str = "GITHUB_LIVE_CONTRIBUTIONS"
 
-    SAMPLE_CONTRIBUTIONS = [
-        {
-            "id": "gh-fastapi-perf",
-            "repo": "tiangolo/fastapi",
-            "company": "FastAPI Core",
-            "title": "Async Streaming Response Memory Optimization & Benchmarks",
-            "body": "Issue #8942: High memory retention during large streaming chunk uploads under heavy concurrent load. Looking for a community contributor with deep Python asyncio and streaming socket knowledge to implement memory-bounded chunk buffering.",
-            "url": "https://github.com/tiangolo/fastapi/issues/8942",
-            "skills": ["Python", "FastAPI", "Asyncio", "Performance", "Pytest"],
-            "type": OpportunityType.OPEN_SOURCE,
-            "bounty": None,
-        },
-        {
-            "id": "gh-langchain-bounty",
-            "repo": "langchain-ai/langchain",
-            "company": "LangChain",
-            "title": "[Bounty $1,200] Temporal Durable Orchestration Adapter for Agent Graphs",
-            "body": "Algora Bounty: Build a clean, production-grade Temporal workflow wrapper around LangGraph stateful execution nodes to support durable pause-and-resume workflows. Verified payout upon PR merge.",
-            "url": "https://github.com/langchain-ai/langchain/issues/21034",
-            "skills": ["Python", "Temporal", "Distributed Systems", "Testing"],
-            "type": OpportunityType.PAID_OPEN_SOURCE,
-            "bounty": 1200.0,
-        },
-    ]
+
 
     async def discover(self, criteria: Optional[SearchCriteria] = None) -> List[RawListing]:
         results: List[RawListing] = []
@@ -78,22 +55,6 @@ class GitHubContributionConnector(OpportunitySource):
         except Exception:
             pass
 
-        if results:
-            return results
-
-        # Fallback to curated samples if offline or rate limited
-        for sample in self.SAMPLE_CONTRIBUTIONS:
-            results.append(
-                RawListing(
-                    source=self.source_name,
-                    external_id=sample["id"],
-                    url=sample["url"],
-                    raw_title=sample["title"],
-                    raw_company=sample["company"],
-                    raw_body=sample["body"],
-                    raw_metadata=sample,
-                )
-            )
         return results
 
     async def normalize(self, raw: RawListing) -> Opportunity:
