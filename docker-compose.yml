@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: opportunity_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: opportunity
+      POSTGRES_PASSWORD: opportunity_secret_password
+      POSTGRES_DB: opportunity_os
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opportunity -d opportunity_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: opportunity_redis
+    restart: always
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+
+  temporal:
+    image: temporalio/admin-tools:latest
+    container_name: opportunity_temporal_admin
+    depends_on:
+      - postgres
+    environment:
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    entrypoint: ["tail", "-f", "/dev/null"]
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: opportunity_api
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://opportunity:opportunity_secret_password@postgres:5432/opportunity_os
+      - REDIS_URL=redis://redis:6379/0
+      - TEMPORAL_HOST=temporal:7233
+      - AUTOMATION_LEVEL=3
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages:/app/packages
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: opportunity_web
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
