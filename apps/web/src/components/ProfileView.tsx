@@ -26,6 +26,9 @@ export function ProfileView({ profile, verifiedAnswers, onRestartOnboarding }: P
 
   if (!profile) return null;
 
+  const currCode = profile.salary_currency || profile.preferred_currencies?.[0] || 'USD';
+  const currencySymbol = currCode === 'INR' ? '₹' : currCode === 'GBP' ? '£' : currCode === 'EUR' ? '€' : '$';
+
   return (
     <div className="space-y-6">
       {/* Profile Overview Card */}
@@ -51,7 +54,11 @@ export function ProfileView({ profile, verifiedAnswers, onRestartOnboarding }: P
                 </span>
                 <span>•</span>
                 <span className="font-mono text-emerald-400">
-                  Floor: ${profile.minimum_salary_annual?.toLocaleString()}/yr or ${profile.minimum_hourly_rate}/hr
+                  Floor: {currencySymbol}{profile.minimum_salary_annual?.toLocaleString()}/yr or {currencySymbol}{profile.minimum_hourly_rate}/hr
+                </span>
+                <span>•</span>
+                <span className="font-mono text-brand-300 bg-brand-500/10 px-2 py-0.5 rounded border border-brand-500/20 text-[10px]">
+                  {currCode} ({currencySymbol})
                 </span>
                 <span>•</span>
                 <span className="font-mono text-zinc-400">

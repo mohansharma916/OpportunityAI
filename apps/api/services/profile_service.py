@@ -265,6 +265,7 @@ class ProfileService:
             target_roles=model.target_roles or [],
             minimum_salary_annual=model.minimum_salary_annual,
             minimum_hourly_rate=model.minimum_hourly_rate,
+            salary_currency=getattr(model, "salary_currency", "USD") or "USD",
             preferred_currencies=model.preferred_currencies or [],
             remote_preference=model.remote_preference,
             timezone_overlap_hours=model.timezone_overlap_hours,

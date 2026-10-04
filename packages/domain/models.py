@@ -157,7 +157,8 @@ class CandidateProfile(BaseModel):
     )
     minimum_salary_annual: float = 140000.0
     minimum_hourly_rate: float = 75.0
-    preferred_currencies: List[str] = Field(default_factory=lambda: ["USD", "EUR", "GBP"])
+    salary_currency: str = "USD"
+    preferred_currencies: List[str] = Field(default_factory=lambda: ["USD", "EUR", "GBP", "INR"])
     remote_preference: RemoteType = RemoteType.REMOTE
     timezone_overlap_hours: int = 4
     notice_period_days: int = 14

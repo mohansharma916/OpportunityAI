@@ -52,6 +52,7 @@ class CandidateProfileModel(Base):
     target_roles = Column(JSON, default=list)
     minimum_salary_annual = Column(Float, default=140000.0)
     minimum_hourly_rate = Column(Float, default=75.0)
+    salary_currency = Column(String(10), default="USD")
     preferred_currencies = Column(JSON, default=list)
     remote_preference = Column(String(50), default="REMOTE")
     timezone_overlap_hours = Column(Integer, default=4)

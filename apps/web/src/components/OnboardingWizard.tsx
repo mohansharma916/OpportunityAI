@@ -46,6 +46,7 @@ export function OnboardingWizard({ user, onCompleted, onSignOut }: OnboardingWiz
 
   // Preference form state
   const [targetRoles, setTargetRoles] = useState('Staff Software Engineer, Senior Full Stack Engineer, Founding Engineer');
+  const [salaryCurrency, setSalaryCurrency] = useState<'USD' | 'INR' | 'GBP' | 'EUR'>('USD');
   const [minSalary, setMinSalary] = useState(160000);
   const [minHourly, setMinHourly] = useState(85);
   const [authorizedCountries, setAuthorizedCountries] = useState('US, EU, Worldwide Remote');
@@ -53,6 +54,28 @@ export function OnboardingWizard({ user, onCompleted, onSignOut }: OnboardingWiz
   const [noticeDays, setNoticeDays] = useState(14);
   const [remotePref, setRemotePref] = useState('REMOTE');
   const [automationLevel, setAutomationLevel] = useState(3);
+
+  const CURRENCY_CONFIG: Record<string, { symbol: string; label: string; name: string; defaultSalary: number; defaultHourly: number }> = {
+    USD: { symbol: '$', label: '$ USD (Dollar)', name: 'US Dollar', defaultSalary: 160000, defaultHourly: 85 },
+    INR: { symbol: '₹', label: '₹ INR (Rupee)', name: 'Indian Rupee', defaultSalary: 2500000, defaultHourly: 1500 },
+    GBP: { symbol: '£', label: '£ GBP (Pound)', name: 'British Pound', defaultSalary: 120000, defaultHourly: 70 },
+    EUR: { symbol: '€', label: '€ EUR (Euro)', name: 'Euro', defaultSalary: 130000, defaultHourly: 75 },
+  };
+
+  const handleCurrencyChange = (newCurr: 'USD' | 'INR' | 'GBP' | 'EUR') => {
+    const prevCurr = salaryCurrency;
+    setSalaryCurrency(newCurr);
+    const prevConfig = CURRENCY_CONFIG[prevCurr];
+    const nextConfig = CURRENCY_CONFIG[newCurr];
+    // Automatically adjust defaults when switching between currency scales
+    if (minSalary === prevConfig.defaultSalary || (newCurr === 'INR' && minSalary < 500000)) {
+      setMinSalary(nextConfig.defaultSalary);
+      setMinHourly(nextConfig.defaultHourly);
+    } else if (newCurr !== 'INR' && minSalary > 1000000 && prevCurr === 'INR') {
+      setMinSalary(nextConfig.defaultSalary);
+      setMinHourly(nextConfig.defaultHourly);
+    }
+  };
 
   const sampleResume = `
 Alex Morgan
@@ -122,6 +145,8 @@ Engineered high-throughput financial collaboration dashboards used by 80k+ enter
           target_roles: targetRoles.split(',').map((r) => r.trim()).filter(Boolean),
           minimum_salary_annual: minSalary,
           minimum_hourly_rate: minHourly,
+          salary_currency: salaryCurrency,
+          preferred_currencies: [salaryCurrency],
           countries_willing_to_work: authorizedCountries.split(',').map((c) => c.trim()).filter(Boolean),
           authorized_countries: authorizedCountries.split(',').map((c) => c.trim()).filter(Boolean),
           visa_sponsorship_needed: sponsorshipNeeded,
@@ -426,27 +451,62 @@ Engineered high-throughput financial collaboration dashboards used by 80k+ enter
               </div>
 
               <div>
-                <label className="text-[11px] font-medium text-zinc-300 block mb-1">
-                  Minimum Annual Salary ($ Floor)
-                </label>
-                <input
-                  type="number"
-                  value={minSalary}
-                  onChange={(e) => setMinSalary(Number(e.target.value))}
-                  className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-brand-500/50"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-medium text-zinc-300">
+                    Minimum Annual Salary ({CURRENCY_CONFIG[salaryCurrency]?.symbol || '$'} Floor)
+                  </label>
+                  <span className="text-[10px] text-zinc-400 font-mono">Currency</span>
+                </div>
+                <div className="flex rounded-lg overflow-hidden border border-white/10 focus-within:border-brand-500/50 bg-surface-300">
+                  <select
+                    value={salaryCurrency}
+                    onChange={(e) => handleCurrencyChange(e.target.value as any)}
+                    className="bg-surface-200 border-r border-white/10 px-2.5 py-2 text-xs font-semibold text-brand-300 focus:outline-none cursor-pointer hover:bg-surface-100 transition-colors"
+                  >
+                    <option value="USD">$ USD (Dollar)</option>
+                    <option value="INR">₹ INR (Rupee)</option>
+                    <option value="GBP">£ GBP (Pound)</option>
+                    <option value="EUR">€ EUR (Euro)</option>
+                  </select>
+                  <div className="relative flex-1 flex items-center">
+                    <span className="pl-3 text-zinc-400 text-xs font-mono font-medium select-none">
+                      {CURRENCY_CONFIG[salaryCurrency]?.symbol || '$'}
+                    </span>
+                    <input
+                      type="number"
+                      value={minSalary}
+                      onChange={(e) => setMinSalary(Number(e.target.value))}
+                      className="w-full bg-transparent pl-2 pr-3 py-2 text-xs text-white font-mono focus:outline-none"
+                      placeholder={salaryCurrency === 'INR' ? '2500000' : '160000'}
+                    />
+                  </div>
+                </div>
+                <span className="text-[10px] text-zinc-500 font-mono mt-1 block">
+                  {salaryCurrency === 'INR'
+                    ? `≈ ${(minSalary / 100000).toFixed(1)} Lakhs per annum (LPA)`
+                    : `Annual guaranteed floor in ${CURRENCY_CONFIG[salaryCurrency]?.name || 'USD'}`}
+                </span>
               </div>
 
               <div>
                 <label className="text-[11px] font-medium text-zinc-300 block mb-1">
-                  Minimum Hourly Contract Rate ($/hr Floor)
+                  Minimum Hourly Contract Rate ({CURRENCY_CONFIG[salaryCurrency]?.symbol || '$'}/hr Floor)
                 </label>
-                <input
-                  type="number"
-                  value={minHourly}
-                  onChange={(e) => setMinHourly(Number(e.target.value))}
-                  className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-brand-500/50"
-                />
+                <div className="relative flex items-center rounded-lg border border-white/10 focus-within:border-brand-500/50 bg-surface-300 overflow-hidden">
+                  <span className="pl-3 text-zinc-400 text-xs font-mono font-medium select-none">
+                    {CURRENCY_CONFIG[salaryCurrency]?.symbol || '$'}
+                  </span>
+                  <input
+                    type="number"
+                    value={minHourly}
+                    onChange={(e) => setMinHourly(Number(e.target.value))}
+                    className="w-full bg-transparent pl-2 pr-3 py-2 text-xs text-white font-mono focus:outline-none"
+                    placeholder={salaryCurrency === 'INR' ? '1500' : '85'}
+                  />
+                  <span className="pr-3 text-[11px] text-zinc-500 font-mono select-none">
+                    /hr
+                  </span>
+                </div>
               </div>
 
               <div>
@@ -574,6 +634,44 @@ Engineered high-throughput financial collaboration dashboards used by 80k+ enter
                     }
                     className="w-full bg-surface-400/80 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500/50"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Target Compensation & Guardrails Card */}
+            <div className="p-4 rounded-xl bg-surface-300 border border-white/5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">Target Compensation & Guardrails</span>
+                <span className="text-[10px] font-mono text-brand-300 bg-brand-500/10 px-2 py-0.5 rounded border border-brand-500/20">
+                  {CURRENCY_CONFIG[salaryCurrency]?.label || '$ USD'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="bg-surface-400/50 p-2.5 rounded-lg border border-white/5">
+                  <span className="text-[10px] text-zinc-400 block font-mono">Salary Floor</span>
+                  <span className="text-xs font-bold font-mono text-emerald-400">
+                    {CURRENCY_CONFIG[salaryCurrency]?.symbol || '$'}{minSalary.toLocaleString()}
+                    <span className="text-[10px] text-zinc-400 font-normal"> / yr</span>
+                  </span>
+                </div>
+                <div className="bg-surface-400/50 p-2.5 rounded-lg border border-white/5">
+                  <span className="text-[10px] text-zinc-400 block font-mono">Hourly Contract</span>
+                  <span className="text-xs font-bold font-mono text-brand-300">
+                    {CURRENCY_CONFIG[salaryCurrency]?.symbol || '$'}{minHourly}
+                    <span className="text-[10px] text-zinc-400 font-normal"> / hr</span>
+                  </span>
+                </div>
+                <div className="bg-surface-400/50 p-2.5 rounded-lg border border-white/5">
+                  <span className="text-[10px] text-zinc-400 block font-mono">Notice Period</span>
+                  <span className="text-xs font-bold font-mono text-zinc-200">
+                    {noticeDays} days
+                  </span>
+                </div>
+                <div className="bg-surface-400/50 p-2.5 rounded-lg border border-white/5">
+                  <span className="text-[10px] text-zinc-400 block font-mono">Automation</span>
+                  <span className="text-xs font-bold font-mono text-cyan-300">
+                    Level {automationLevel}
+                  </span>
                 </div>
               </div>
             </div>

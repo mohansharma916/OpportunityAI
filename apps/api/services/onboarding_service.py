@@ -201,6 +201,12 @@ class OnboardingService:
         personal = verified_data.get("personal", {})
         prefs = verified_data.get("preferences", {})
 
+        curr = prefs.get("salary_currency", "USD")
+        pref_currencies = [curr]
+        for c in ["USD", "EUR", "GBP", "INR"]:
+            if c not in pref_currencies:
+                pref_currencies.append(c)
+
         if not profile:
             profile = CandidateProfileModel(
                 id=str(uuid.uuid4()),
@@ -216,7 +222,8 @@ class OnboardingService:
                 target_roles=prefs.get("target_roles", ["Senior Software Engineer", "Staff Engineer"]),
                 minimum_salary_annual=float(prefs.get("minimum_salary_annual", 140000.0)),
                 minimum_hourly_rate=float(prefs.get("minimum_hourly_rate", 80.0)),
-                preferred_currencies=["USD", "EUR", "GBP"],
+                salary_currency=curr,
+                preferred_currencies=pref_currencies,
                 remote_preference=prefs.get("remote_preference", "REMOTE"),
                 timezone_overlap_hours=int(prefs.get("timezone_overlap_hours", 4)),
                 notice_period_days=int(prefs.get("notice_period_days", 14)),
@@ -232,6 +239,8 @@ class OnboardingService:
             profile.location = personal.get("location", profile.location)
             profile.minimum_salary_annual = float(prefs.get("minimum_salary_annual", profile.minimum_salary_annual))
             profile.minimum_hourly_rate = float(prefs.get("minimum_hourly_rate", profile.minimum_hourly_rate))
+            profile.salary_currency = curr
+            profile.preferred_currencies = pref_currencies
             profile.target_roles = prefs.get("target_roles", profile.target_roles)
             profile.automation_level = int(prefs.get("automation_level", profile.automation_level))
 
