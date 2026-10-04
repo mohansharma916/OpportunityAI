@@ -37,6 +37,7 @@ import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { AutonomousCrawlerView } from '@/components/AutonomousCrawlerView';
 import { ApplicationsTrackerView } from '@/components/ApplicationsTrackerView';
 import { LinkedInGrowthAgentView } from '@/components/LinkedInGrowthAgentView';
+import { OpportunityEngineView } from '@/components/OpportunityEngineView';
 
 export default function OpportunityOSApp() {
   const [currentTab, setCurrentTab] = useState('dashboard');
@@ -61,6 +62,22 @@ export default function OpportunityOSApp() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
+
+  const tabTitles: Record<string, { title: string; subtitle: string }> = {
+    dashboard: { title: 'Command Center', subtitle: 'Daily briefing, active tasks & pipeline health' },
+    opportunities: { title: 'Opportunity Engine', subtitle: 'Autonomous discovery, multi-platform crawl & matrix pipeline' },
+    crawler: { title: 'Opportunity Engine', subtitle: 'Autonomous discovery, multi-platform crawl & matrix pipeline' },
+    applications: { title: 'Applications Tracker', subtitle: 'Submission pipeline, lifecycle tasks & tailored packages' },
+    linkedin: { title: 'LinkedIn AI Agent', subtitle: 'Personal brand strategy, content studio & relationship CRM' },
+    profile: { title: 'Knowledge Base', subtitle: 'Candidate identity, verified skills, salary floors & screening Q&A' },
+    resumes: { title: 'Tailored Resumes', subtitle: 'AI-tailored variant repository & keyword optimization' },
+    contacts: { title: 'Contacts & CRM', subtitle: 'Key recruiters, engineering leaders & outreach sequences' },
+    contributions: { title: 'Open Source & Bounties', subtitle: 'High-leverage technical contributions and paid bounties' },
+    activity: { title: 'Audit Activity Log', subtitle: 'Transparent agent decision history and event stream' },
+    analytics: { title: 'Performance Analytics', subtitle: 'Conversion metrics, match accuracy & growth ROI' },
+  };
+
+  const currentTabInfo = tabTitles[currentTab] || { title: 'Workspace', subtitle: 'OpportunityOS' };
 
   // Global Keyboard shortcut listener: Cmd+K / Ctrl+K
   useEffect(() => {
@@ -224,6 +241,20 @@ export default function OpportunityOSApp() {
       <main className="flex-1 ml-64 min-h-screen flex flex-col">
         {/* Top Floating Command Bar & Control Header */}
         <header className="h-16 border-b border-white/5 bg-surface-400/80 backdrop-blur-md sticky top-0 z-20 px-8 flex items-center justify-between">
+          {/* Active Workspace Title & Breadcrumb */}
+          <div className="flex items-center gap-3">
+            <div>
+              <div className="flex items-center gap-1.5 text-[11px] font-mono text-zinc-500">
+                <span>OpportunityOS</span>
+                <span>/</span>
+                <span className="text-brand-400 font-bold">{currentTabInfo.title}</span>
+              </div>
+              <p className="text-xs font-semibold text-white tracking-tight">
+                {currentTabInfo.subtitle}
+              </p>
+            </div>
+          </div>
+
           {/* Quick AI Command trigger input */}
           <div className="flex items-center gap-3 w-96">
             <button
@@ -244,31 +275,15 @@ export default function OpportunityOSApp() {
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/40 text-emerald-400 text-[10px] font-mono">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>Orchestration Worker Active</span>
+              <span>Autonomous Active</span>
             </div>
-
-            <button
-              onClick={() => setCurrentTab('linkedin')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-xs font-semibold text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 transition-all shadow-sm"
-            >
-              <Share2 className="w-3.5 h-3.5 text-indigo-400" />
-              <span>LinkedIn Agent</span>
-            </button>
-
-            <button
-              onClick={() => setCurrentTab('crawler')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 text-xs font-semibold text-brand-300 border border-brand-500/30 hover:border-brand-500/50 transition-all shadow-sm"
-            >
-              <Globe className="w-3.5 h-3.5 text-brand-400" />
-              <span>Auto Crawler</span>
-            </button>
 
             <button
               onClick={() => setIsImportOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-white border border-white/10 hover:border-white/20 transition-all"
             >
               <Plus className="w-3.5 h-3.5 text-brand-400" />
-              <span>Import URL/Text</span>
+              <span>Import URL</span>
             </button>
 
             <button
@@ -343,26 +358,12 @@ export default function OpportunityOSApp() {
             </div>
           )}
 
-          {currentTab === 'opportunities' && (
-            <div>
-              <KanbanBoard
-                opportunities={opportunities}
-                onSelectOpportunity={setSelectedOpportunity}
-                onOpenImport={() => setIsImportOpen(true)}
-                onAutoApply={handleAutoApply}
-              />
-            </div>
-          )}
-
-          {currentTab === 'linkedin' && (
-            <LinkedInGrowthAgentView
-              onRefreshAllData={loadData}
-              profile={profile}
-            />
-          )}
-
-          {currentTab === 'crawler' && (
-            <AutonomousCrawlerView
+          {(currentTab === 'opportunities' || currentTab === 'crawler') && (
+            <OpportunityEngineView
+              opportunities={opportunities}
+              onSelectOpportunity={setSelectedOpportunity}
+              onOpenImport={() => setIsImportOpen(true)}
+              onAutoApply={handleAutoApply}
               onRefreshAllData={loadData}
               profile={profile}
             />
@@ -373,6 +374,13 @@ export default function OpportunityOSApp() {
               opportunities={opportunities}
               onSelectApplication={(app) => setSelectedApplication(app)}
               onRefreshData={loadData}
+            />
+          )}
+
+          {currentTab === 'linkedin' && (
+            <LinkedInGrowthAgentView
+              onRefreshAllData={loadData}
+              profile={profile}
             />
           )}
 
