@@ -122,7 +122,7 @@ export default function OpportunityOSApp() {
       const [pData, oData, bData, aData, anData, cData, outData, rData, vAns] = await Promise.all([
         fetchApi<any>('/api/profile'),
         fetchApi<any[]>('/api/opportunities'),
-        fetchApi<any>('/api/briefing'),
+        fetchApi<any>(`/api/briefing${user?.id ? `?user_id=${encodeURIComponent(user.id)}&user_name=${encodeURIComponent(user.full_name || '')}` : ''}`),
         fetchApi<any[]>('/api/activity?limit=35'),
         fetchApi<any>('/api/analytics'),
         fetchApi<any[]>('/api/contacts'),

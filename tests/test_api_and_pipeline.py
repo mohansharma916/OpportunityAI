@@ -124,5 +124,10 @@ async def test_full_opportunity_vertical_slice():
         brief_res = await client.get("/api/briefing")
         assert brief_res.status_code == 200
         briefing = brief_res.json()
-        assert "Alex" in briefing["summary_text"]
+        assert "Good morning" in briefing["summary_text"]
         assert briefing["opportunities_discovered_count"] >= 4
+
+        # Verify dynamic candidate name in briefing
+        custom_brief = await client.get("/api/briefing?user_name=Sarah+Connor")
+        assert custom_brief.status_code == 200
+        assert "Good morning Sarah." in custom_brief.json()["summary_text"]

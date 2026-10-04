@@ -735,8 +735,12 @@ async def run_ai_command(req: AICommandRequest, db: AsyncSession = Depends(get_d
 
 
 @app.get("/api/briefing")
-async def get_daily_briefing(db: AsyncSession = Depends(get_db)):
-    briefing = await BriefingService.generate_daily_briefing(db)
+async def get_daily_briefing(
+    user_id: Optional[str] = Query(None),
+    user_name: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    briefing = await BriefingService.generate_daily_briefing(db, user_id=user_id, user_name=user_name)
     return briefing
 
 
