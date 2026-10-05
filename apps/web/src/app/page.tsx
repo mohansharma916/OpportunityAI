@@ -17,444 +17,248 @@ import {
   LogOut,
   Globe,
   Share2,
+  KeyRound,
+  ShieldCheck,
+  User,
+  X,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 import { Navigation } from '@/components/Navigation';
-import { DailyBriefingCard } from '@/components/DailyBriefingCard';
-import { KanbanBoard } from '@/components/KanbanBoard';
-import { OpportunityDetailModal } from '@/components/OpportunityDetailModal';
-import { ApplicationReviewModal } from '@/components/ApplicationReviewModal';
-import { ManualImportModal } from '@/components/ManualImportModal';
-import { AICommandBar } from '@/components/AICommandBar';
-import { ActivityFeed } from '@/components/ActivityFeed';
-import { AnalyticsView } from '@/components/AnalyticsView';
-import { ProfileView } from '@/components/ProfileView';
-import { ContactsView } from '@/components/ContactsView';
-import { ContributionsView } from '@/components/ContributionsView';
-import { ResumesView } from '@/components/ResumesView';
-import { AuthScreen } from '@/components/AuthScreen';
-import { OnboardingWizard } from '@/components/OnboardingWizard';
-import { AutonomousCrawlerView } from '@/components/AutonomousCrawlerView';
-import { ApplicationsTrackerView } from '@/components/ApplicationsTrackerView';
+import { JobScraperView } from '@/components/JobScraperView';
 import { LinkedInGrowthAgentView } from '@/components/LinkedInGrowthAgentView';
-import { OpportunityEngineView } from '@/components/OpportunityEngineView';
+import { CRMView } from '@/components/CRMView';
+import { ProfileView } from '@/components/ProfileView';
+import { AuthScreen } from '@/components/AuthScreen';
 
 export default function OpportunityOSApp() {
-  const [currentTab, setCurrentTab] = useState('dashboard');
+  const [currentTab, setCurrentTab] = useState<'scraper' | 'linkedin' | 'crm'>('scraper');
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [onboardingSuccessBanner, setOnboardingSuccessBanner] = useState<any>(null);
-
   const [profile, setProfile] = useState<any>(null);
-  const [opportunities, setOpportunities] = useState<any[]>([]);
-  const [briefing, setBriefing] = useState<any>(null);
-  const [activities, setActivities] = useState<any[]>([]);
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [contacts, setContacts] = useState<any[]>([]);
-  const [outreachSequences, setOutreachSequences] = useState<any[]>([]);
-  const [resumes, setResumes] = useState<any[]>([]);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [verifiedAnswers, setVerifiedAnswers] = useState<any[]>([]);
 
-  // Modals & triggers
-  const [selectedOpportunity, setSelectedOpportunity] = useState<any>(null);
-  const [selectedApplication, setSelectedApplication] = useState<any>(null);
-  const [isImportOpen, setIsImportOpen] = useState(false);
-  const [isCommandBarOpen, setIsCommandBarOpen] = useState(false);
-  const [loadingDiscovery, setLoadingDiscovery] = useState(false);
-
-  const tabTitles: Record<string, { title: string; subtitle: string }> = {
-    dashboard: { title: 'Command Center', subtitle: 'Daily briefing, active tasks & pipeline health' },
-    opportunities: { title: 'Opportunity Engine', subtitle: 'Autonomous discovery, multi-platform crawl & matrix pipeline' },
-    crawler: { title: 'Opportunity Engine', subtitle: 'Autonomous discovery, multi-platform crawl & matrix pipeline' },
-    applications: { title: 'Applications Tracker', subtitle: 'Submission pipeline, lifecycle tasks & tailored packages' },
-    linkedin: { title: 'LinkedIn AI Agent', subtitle: 'Personal brand strategy, content studio & relationship CRM' },
-    profile: { title: 'Knowledge Base', subtitle: 'Candidate identity, verified skills, salary floors & screening Q&A' },
-    resumes: { title: 'Tailored Resumes', subtitle: 'AI-tailored variant repository & keyword optimization' },
-    contacts: { title: 'Contacts & CRM', subtitle: 'Key recruiters, engineering leaders & outreach sequences' },
-    contributions: { title: 'Open Source & Bounties', subtitle: 'High-leverage technical contributions and paid bounties' },
-    activity: { title: 'Audit Activity Log', subtitle: 'Transparent agent decision history and event stream' },
-    analytics: { title: 'Performance Analytics', subtitle: 'Conversion metrics, match accuracy & growth ROI' },
+  // Tab Header Details
+  const tabInfo: Record<string, { title: string; subtitle: string; icon: any }> = {
+    scraper: {
+      title: 'Job / Project Web Scraper Tool',
+      subtitle: 'Multi-platform list management, date-grouped opportunity pipeline & human-like auto-applier',
+      icon: Globe,
+    },
+    linkedin: {
+      title: 'LinkedIn Scraper & Automation Bot',
+      subtitle: 'LinkedIn opportunity & post scraper, Selenium-style connection bot & content publisher',
+      icon: Share2,
+    },
+    crm: {
+      title: 'Automated Outreach & Networking CRM',
+      subtitle: 'Multi-step recruiter follow-up cadences, AI personalized messaging & auto-pause tracking',
+      icon: Send,
+    },
   };
 
-  const currentTabInfo = tabTitles[currentTab] || { title: 'Workspace', subtitle: 'OpportunityOS' };
+  const currentTabDetails = tabInfo[currentTab] || tabInfo.scraper;
+  const CurrentIcon = currentTabDetails.icon;
 
-  // Global Keyboard shortcut listener: Cmd+K / Ctrl+K
+  // Initialize Auth
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsCommandBarOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Check stored credentials or demo user on mount
-  useEffect(() => {
+    let mounted = true;
     const initAuth = async () => {
       try {
-        const stored = localStorage.getItem('opportunity_user');
+        const stored = typeof window !== 'undefined' ? localStorage.getItem('opportunity_user') : null;
         if (stored) {
-          const parsed = JSON.parse(stored);
-          setUser(parsed);
           try {
+            const parsed = JSON.parse(stored);
+            if (mounted) setUser(parsed);
             const fresh = await fetchApi<any>(`/api/auth/me?user_id=${parsed.id}`);
-            if (fresh && fresh.id) {
+            if (fresh && fresh.id && mounted) {
               setUser(fresh);
               localStorage.setItem('opportunity_user', JSON.stringify(fresh));
             }
           } catch (_) {}
+        } else {
+          // Auto-authenticate with demo user for seamless zero-friction access
+          try {
+            const demo = await fetchApi<any>('/api/auth/demo', { method: 'POST' });
+            if (demo && demo.id && mounted) {
+              setUser(demo);
+              localStorage.setItem('opportunity_user', JSON.stringify(demo));
+            }
+          } catch (_) {
+            if (mounted) {
+              setUser({ id: 'demo-user', full_name: 'Lead Engineer', email: 'engineer@opportunityos.internal' });
+            }
+          }
         }
       } catch (err) {
-        console.warn('Auth check error:', err);
+        console.warn('Auth init warning:', err);
+        if (mounted) {
+          setUser({ id: 'demo-user', full_name: 'Lead Engineer', email: 'engineer@opportunityos.internal' });
+        }
       } finally {
-        setAuthLoading(false);
+        if (mounted) {
+          setAuthLoading(false);
+        }
       }
     };
+
     initAuth();
+
+    // Safety timeout: Guarantee authLoading never stays true for more than 1 second
+    const timer = setTimeout(() => {
+      if (mounted) {
+        setAuthLoading(false);
+      }
+    }, 1000);
+
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
   }, []);
 
-  // Fetch all primary datasets
-  const loadData = async () => {
+  // Load Profile Data
+  const loadProfileData = async () => {
     try {
-      const [pData, oData, bData, aData, anData, cData, outData, rData, vAns] = await Promise.all([
+      const [profData, answersData] = await Promise.all([
         fetchApi<any>('/api/profile'),
-        fetchApi<any[]>('/api/opportunities'),
-        fetchApi<any>(`/api/briefing${user?.id ? `?user_id=${encodeURIComponent(user.id)}&user_name=${encodeURIComponent(user.full_name || '')}` : ''}`),
-        fetchApi<any[]>('/api/activity?limit=35'),
-        fetchApi<any>('/api/analytics'),
-        fetchApi<any[]>('/api/contacts'),
-        fetchApi<any[]>('/api/outreach'),
-        fetchApi<any[]>('/api/resumes'),
         fetchApi<any[]>('/api/profile/answers'),
       ]);
-
-      setProfile(pData);
-      setOpportunities(oData);
-      setBriefing(bData);
-      setActivities(aData);
-      setAnalytics(anData);
-      setContacts(cData);
-      setOutreachSequences(outData);
-      setResumes(rData);
-      setVerifiedAnswers(vAns);
-    } catch (err: any) {
-      console.error('Failed to load application data:', err);
+      if (profData) setProfile(profData);
+      if (answersData) setVerifiedAnswers(answersData);
+    } catch (err) {
+      console.error('Failed to load profile data:', err);
     }
   };
 
   useEffect(() => {
-    if (user && user.onboarding_completed) {
-      loadData();
+    if (user) {
+      loadProfileData();
     }
   }, [user]);
 
-  const handleRefreshDiscovery = async () => {
-    setLoadingDiscovery(true);
-    try {
-      await fetchApi('/api/opportunities/discover', { method: 'POST' });
-      await loadData();
-    } catch (err: any) {
-      alert(`Discovery failed: ${err.message}`);
-    } finally {
-      setLoadingDiscovery(false);
-    }
-  };
-
-  const handleAutoApply = async () => {
-    try {
-      const res: any = await fetchApi('/api/applications/auto-run', { method: 'POST' });
-      alert(res.message);
-      await loadData();
-    } catch (err: any) {
-      alert(`Auto-Apply failed: ${err.message}`);
-    }
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await fetchApi('/api/auth/logout', { method: 'POST' });
-    } catch (_) {}
+  const handleLogout = () => {
     localStorage.removeItem('opportunity_user');
     setUser(null);
-    setShowOnboarding(false);
-    setOnboardingSuccessBanner(null);
   };
 
-  // 1. Loading screen
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin mb-3 shadow-glow" />
-        <p className="text-xs font-mono text-zinc-400">Initializing OpportunityOS Engine...</p>
+      <div className="flex items-center justify-center min-h-screen bg-surface-100 text-white text-xs font-mono">
+        <div className="flex flex-col items-center gap-3 p-6 rounded-xl bg-surface-300 border border-white/5 shadow-2xl">
+          <Zap className="w-6 h-6 animate-pulse text-brand-400" />
+          <span>Connecting to OpportunityOS...</span>
+          <button
+            onClick={() => {
+              setUser({ id: 'demo-user', full_name: 'Lead Engineer', email: 'engineer@opportunityos.internal' });
+              setAuthLoading(false);
+            }}
+            className="mt-2 text-[10px] text-zinc-400 hover:text-white underline underline-offset-2"
+          >
+            Click here if loading takes too long
+          </button>
+        </div>
       </div>
     );
   }
 
-  // 2. Unauthenticated: Login & Signup Screen
   if (!user) {
-    return (
-      <AuthScreen
-        onAuthenticated={(authenticatedUser) => {
-          setUser(authenticatedUser);
-          localStorage.setItem('opportunity_user', JSON.stringify(authenticatedUser));
-          if (authenticatedUser.onboarding_completed) {
-            loadData();
-          }
-        }}
-      />
-    );
-  }
-
-  // 3. Candidate Onboarding Wizard (Resume Upload, AI Parse, Missing Info, Section Verification, Global Crawl)
-  if (!user.onboarding_completed || showOnboarding) {
-    return (
-      <OnboardingWizard
-        user={user}
-        onSignOut={handleSignOut}
-        onCompleted={(result) => {
-          const updatedUser = { ...user, onboarding_completed: true };
-          setUser(updatedUser);
-          localStorage.setItem('opportunity_user', JSON.stringify(updatedUser));
-          setShowOnboarding(false);
-          setOnboardingSuccessBanner(result);
-          loadData();
-        }}
-      />
-    );
+    return <AuthScreen onAuthenticated={(loggedInUser) => setUser(loggedInUser)} />;
   }
 
   return (
-    <div className="flex min-h-screen bg-background text-zinc-100">
-      {/* Sidebar Navigation */}
+    <div className="flex min-h-screen bg-surface-100 text-zinc-100">
+      {/* Primary Sidebar Navigation (Only 3 Core Features) */}
       <Navigation
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
-        automationLevel={profile?.automation_level ?? 3}
+        onSelectTab={(tab: string) => setCurrentTab(tab as any)}
+        automationLevel={profile?.automation_level ?? 4}
         user={user}
-        onLogout={handleSignOut}
+        onLogout={handleLogout}
+        onOpenProfile={() => setShowProfileModal(true)}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 ml-64 min-h-screen flex flex-col">
-        {/* Top Floating Command Bar & Control Header */}
-        <header className="h-16 border-b border-white/5 bg-surface-400/80 backdrop-blur-md sticky top-0 z-20 px-8 flex items-center justify-between">
-          {/* Active Workspace Title & Breadcrumb */}
+      {/* Main Viewport Content Area */}
+      <main className="flex-1 ml-72 flex flex-col min-h-screen">
+        {/* Top Header Bar */}
+        <header className="h-16 border-b border-white/5 px-8 flex items-center justify-between sticky top-0 bg-surface-100/90 backdrop-blur-md z-20">
           <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-surface-300 border border-white/10 flex items-center justify-center text-brand-400">
+              <CurrentIcon className="w-4 h-4" />
+            </div>
             <div>
-              <div className="flex items-center gap-1.5 text-[11px] font-mono text-zinc-500">
-                <span>OpportunityOS</span>
-                <span>/</span>
-                <span className="text-brand-400 font-bold">{currentTabInfo.title}</span>
-              </div>
-              <p className="text-xs font-semibold text-white tracking-tight">
-                {currentTabInfo.subtitle}
+              <h2 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                {currentTabDetails.title}
+              </h2>
+              <p className="text-[11px] text-zinc-400 truncate max-w-xl">
+                {currentTabDetails.subtitle}
               </p>
             </div>
           </div>
 
-          {/* Quick AI Command trigger input */}
-          <div className="flex items-center gap-3 w-96">
-            <button
-              onClick={() => setIsCommandBarOpen(true)}
-              className="w-full flex items-center justify-between px-3.5 py-1.5 rounded-lg bg-surface-200/90 border border-white/10 hover:border-brand-500/40 text-xs text-zinc-400 transition-all shadow-sm group"
-            >
-              <span className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-brand-400 group-hover:animate-pulse" />
-                <span>Ask AI Agent or execute command...</span>
-              </span>
-              <kbd className="text-[10px] font-mono bg-white/5 text-zinc-400 px-1.5 py-0.5 rounded border border-white/5">
-                ⌘K
-              </kbd>
-            </button>
-          </div>
-
-          {/* Right Action Icons */}
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/40 text-emerald-400 text-[10px] font-mono">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>Autonomous Active</span>
-            </div>
-
             <button
-              onClick={() => setIsImportOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-white border border-white/10 hover:border-white/20 transition-all"
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-200 border border-white/10 text-xs font-medium text-zinc-200 transition-all"
             >
-              <Plus className="w-3.5 h-3.5 text-brand-400" />
-              <span>Import URL</span>
-            </button>
-
-            <button
-              onClick={handleSignOut}
-              title="Sign Out of OpportunityOS"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-200/80 hover:bg-rose-950/30 text-xs font-medium text-zinc-300 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 transition-all shadow-sm"
-            >
-              <LogOut className="w-3.5 h-3.5 text-zinc-400 group-hover:text-rose-300" />
-              <span>Sign Out</span>
+              <KeyRound className="w-3.5 h-3.5 text-brand-400" />
+              <span>Identity & Vault</span>
             </button>
           </div>
         </header>
 
-        {/* Viewport Content */}
+        {/* Dynamic Viewport (Only the 3 Main Features) */}
         <div className="p-8 flex-1 max-w-7xl w-full mx-auto">
-          {onboardingSuccessBanner && (
-            <div className="mb-6 p-4 rounded-xl bg-gradient-to-r from-emerald-950/80 to-surface-300 border border-emerald-500/40 flex items-center justify-between shadow-glow-emerald animate-in fade-in">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white flex items-center gap-2">
-                    Global Discovery & Autonomous Applications Active!
-                    <span className="text-[10px] font-mono text-emerald-300 bg-emerald-900/60 px-2 py-0.5 rounded">
-                      Live
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-zinc-300 mt-0.5">
-                    {onboardingSuccessBanner.message ||
-                      `Discovered ${onboardingSuccessBanner.opportunities_discovered} live jobs across global boards and processed ${onboardingSuccessBanner.auto_applied_count} automated submissions.`}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setOnboardingSuccessBanner(null)}
-                className="text-xs font-mono text-zinc-400 hover:text-white px-3 py-1 rounded bg-white/5 hover:bg-white/10 transition-all"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-
-          {currentTab === 'dashboard' && (
-            <div>
-              <DailyBriefingCard
-                briefing={briefing}
-                onRefreshDiscovery={handleRefreshDiscovery}
-                onSelectOpportunity={(oppId) => {
-                  const found = opportunities.find((o) => o.id === oppId);
-                  if (found) setSelectedOpportunity(found);
-                }}
-                loadingDiscovery={loadingDiscovery}
-              />
-
-              <div className="mt-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-base font-bold text-white tracking-tight">
-                    Active Pipeline Matrix
-                  </h2>
-                  <span className="text-xs text-zinc-400">
-                    {opportunities.length} Total Monitored Opportunities
-                  </span>
-                </div>
-                <KanbanBoard
-                  opportunities={opportunities}
-                  onSelectOpportunity={setSelectedOpportunity}
-                  onOpenImport={() => setIsImportOpen(true)}
-                  onAutoApply={handleAutoApply}
-                />
-              </div>
-            </div>
-          )}
-
-          {(currentTab === 'opportunities' || currentTab === 'crawler') && (
-            <OpportunityEngineView
-              opportunities={opportunities}
-              onSelectOpportunity={setSelectedOpportunity}
-              onOpenImport={() => setIsImportOpen(true)}
-              onAutoApply={handleAutoApply}
-              onRefreshAllData={loadData}
+          {currentTab === 'scraper' && (
+            <JobScraperView
+              onRefreshAllData={loadProfileData}
               profile={profile}
-            />
-          )}
-
-          {currentTab === 'applications' && (
-            <ApplicationsTrackerView
-              opportunities={opportunities}
-              onSelectApplication={(app) => setSelectedApplication(app)}
-              onRefreshData={loadData}
             />
           )}
 
           {currentTab === 'linkedin' && (
             <LinkedInGrowthAgentView
-              onRefreshAllData={loadData}
+              onRefreshAllData={loadProfileData}
               profile={profile}
             />
           )}
 
-          {currentTab === 'contacts' && (
-            <ContactsView contacts={contacts} outreachSequences={outreachSequences} onRefresh={loadData} />
-          )}
-
-          {currentTab === 'contributions' && (
-            <ContributionsView
-              opportunities={opportunities}
-              onSelectOpportunity={setSelectedOpportunity}
-            />
-          )}
-
-          {currentTab === 'resumes' && <ResumesView resumes={resumes} />}
-
-          {currentTab === 'activity' && <ActivityFeed activities={activities} />}
-
-          {currentTab === 'analytics' && <AnalyticsView analytics={analytics} />}
-
-          {currentTab === 'profile' && (
-            <ProfileView
+          {currentTab === 'crm' && (
+            <CRMView
+              onRefreshAllData={loadProfileData}
               profile={profile}
-              verifiedAnswers={verifiedAnswers}
-              onRestartOnboarding={() => setShowOnboarding(true)}
-              onUpdateAnswers={loadData}
             />
           )}
         </div>
       </main>
 
-      {/* Detail / Action Modals */}
-      {selectedOpportunity && (
-        <OpportunityDetailModal
-          opportunity={selectedOpportunity}
-          onClose={() => setSelectedOpportunity(null)}
-          onRefresh={loadData}
-          onOpenReview={(app) => {
-            setSelectedOpportunity(null);
-            setSelectedApplication({
-              ...app,
-              opportunity: selectedOpportunity,
-            });
-          }}
-        />
-      )}
+      {/* Identity, Skills & Credentials Vault Modal */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl max-h-[90vh] bg-surface-300 rounded-2xl border border-white/10 shadow-2xl p-6 overflow-y-auto space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-brand-400" />
+                <div>
+                  <h3 className="text-sm font-bold text-white">Candidate Identity & Knowledge Vault</h3>
+                  <p className="text-xs text-zinc-400">
+                    The verified skills, work experiences, and screening memory used by the auto-apply bots.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowProfileModal(false)} className="text-zinc-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      {selectedApplication && (
-        <ApplicationReviewModal
-          application={selectedApplication}
-          verifiedAnswers={verifiedAnswers}
-          onClose={() => setSelectedApplication(null)}
-          onSubmitted={loadData}
-          onUpdateAnswers={loadData}
-        />
-      )}
-
-      {isImportOpen && (
-        <ManualImportModal
-          isOpen={isImportOpen}
-          onClose={() => setIsImportOpen(false)}
-          onImportSuccess={(newOpp) => {
-            loadData();
-            setSelectedOpportunity(newOpp);
-          }}
-        />
-      )}
-
-      {isCommandBarOpen && (
-        <AICommandBar
-          isOpen={isCommandBarOpen}
-          onClose={() => setIsCommandBarOpen(false)}
-          onCommandExecuted={loadData}
-        />
+            <ProfileView
+              profile={profile}
+              verifiedAnswers={verifiedAnswers}
+              onRestartOnboarding={() => {}}
+              onUpdateAnswers={loadProfileData}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

@@ -357,6 +357,45 @@ class CrawlerScheduleModel(Base):
 
 
 # -------------------------------------------------------------------
+# Scraping Platform & Credentials Models
+# -------------------------------------------------------------------
+
+class ScrapingPlatformModel(Base):
+    __tablename__ = "scraping_platforms"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    name = Column(String(255), nullable=False)
+    url = Column(String(500), nullable=False)
+    category = Column(String(50), default="JOB_BOARD")  # JOB_BOARD, PROJECT_CONTRIBUTIONS, FREELANCE, STARTUPS, COMMUNITY
+    added_by = Column(String(50), default="USER")       # USER, AI
+    requires_auth = Column(Boolean, default=False)
+    auth_username = Column(String(255), nullable=True)  # User ID or Email for login
+    auth_password = Column(String(255), nullable=True)  # Password for login
+    auth_notes = Column(Text, nullable=True)            # Notes / instructions / 2FA hint
+    status = Column(String(50), default="ACTIVE")       # ACTIVE, PAUSED
+    crawl_frequency_hours = Column(Integer, default=6)
+    last_scraped_at = Column(DateTime, nullable=True)
+    total_opportunities_found = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AccountCredentialModel(Base):
+    __tablename__ = "account_credentials"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    platform_name = Column(String(100), nullable=False, unique=True)  # e.g. "LINKEDIN", "WELLFOUND", "INDEED", "REMOTEOK", "GITHUB"
+    username = Column(String(255), nullable=False)
+    password = Column(String(255), nullable=False)
+    cookies = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# -------------------------------------------------------------------
 # LinkedIn AI Growth Agent Models
 # -------------------------------------------------------------------
 

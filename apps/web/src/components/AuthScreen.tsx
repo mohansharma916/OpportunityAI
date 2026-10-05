@@ -166,6 +166,32 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 </>
               )}
             </button>
+
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-white/5"></div>
+              <span className="flex-shrink mx-2 text-[10px] text-zinc-500 uppercase tracking-widest font-mono">or</span>
+              <div className="flex-grow border-t border-white/5"></div>
+            </div>
+
+            <button
+              type="button"
+              disabled={loading}
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  const demoUser = await fetchApi<any>('/api/auth/demo', { method: 'POST' });
+                  onAuthenticated(demoUser);
+                } catch {
+                  onAuthenticated({ id: 'demo-user', full_name: 'Lead Engineer', email: 'engineer@opportunityos.internal' });
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className="w-full py-2 rounded-lg bg-surface-300 hover:bg-surface-400 border border-white/10 text-xs font-medium text-zinc-300 hover:text-white transition-all flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-brand-400" />
+              <span>Instant Demo Access</span>
+            </button>
           </form>
         </div>
 

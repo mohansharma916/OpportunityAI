@@ -170,7 +170,14 @@ class CRMService:
         db.add(msg3)
 
         await db.commit()
-        await db.refresh(seq)
+
+        stmt = (
+            select(OutreachSequenceModel)
+            .options(selectinload(OutreachSequenceModel.messages))
+            .where(OutreachSequenceModel.id == seq.id)
+        )
+        seq_res = await db.execute(stmt)
+        seq_loaded = seq_res.scalar_one()
 
         await ActivityService.record_event(
             db=db,
@@ -180,7 +187,7 @@ class CRMService:
             reason=f"Staged 3-step outreach sequence for {contact.full_name if contact else 'contact'}.",
             output_payload={"sequence_id": seq.id, "steps": 3},
         )
-        return seq
+        return seq_loaded
 
     @staticmethod
     async def get_outreach_sequences(db: AsyncSession) -> List[OutreachSequenceModel]:

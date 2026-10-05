@@ -44,12 +44,17 @@ class MatchingEngine:
             return MatchingScore(
                 opportunity_id=opportunity.id,
                 overall_match_score=50.0,
+                confidence_score=50.0,
                 technical_match=50.0,
-                seniority_match=50.0,
-                domain_match=50.0,
+                experience_match=50.0,
+                remote_match=50.0,
+                timezone_match=50.0,
                 compensation_match=50.0,
-                remote_timezone_match=50.0,
-                recommendation=MatchRecommendation.NEUTRAL,
+                industry_match=50.0,
+                role_match=50.0,
+                transferable_skills={},
+                primary_strengths=["Foundational technical alignment"],
+                primary_gaps=[],
                 match_rationale="Candidate profile pending onboarding verification.",
             )
 
@@ -113,8 +118,8 @@ class MatchingEngine:
         self, profile: CandidateProfile, opportunity: Opportunity
     ) -> Tuple[float, Dict[str, str], List[str], List[str]]:
         candidate_skills_map = {s.skill_name.lower(): s for s in profile.skills}
-        req_skills = [s.strip() for s in opportunity.required_skills if s.strip()]
-        pref_skills = [s.strip() for s in opportunity.preferred_skills if s.strip()]
+        req_skills = [s.strip() for s in (opportunity.required_skills or []) if s and s.strip()]
+        pref_skills = [s.strip() for s in (opportunity.preferred_skills or []) if s and s.strip()]
 
         # If no explicit skills listed in job, extract from title/description keywords
         if not req_skills:

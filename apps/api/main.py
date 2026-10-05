@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from apps.api.config import settings
 from apps.api.db import init_db, get_db
@@ -26,7 +27,16 @@ from apps.api.services.auth_service import AuthService
 from apps.api.services.onboarding_service import OnboardingService
 from apps.api.services.crawler_service import CrawlerService
 from apps.api.services.linkedin_growth_service import LinkedInGrowthService
-from apps.api.models import OpportunityModel, ResumeVariantModel, UserModel
+from apps.api.services.platform_service import PlatformService
+from apps.api.models import (
+    OpportunityModel,
+    ResumeVariantModel,
+    UserModel,
+    ScrapingPlatformModel,
+    AccountCredentialModel,
+    ContactModel,
+    OutreachSequenceModel,
+)
 
 
 @asynccontextmanager
@@ -233,6 +243,51 @@ class DecideActionRequest(BaseModel):
 
 class LinkedInCommandRequest(BaseModel):
     prompt: str
+
+
+class CreatePlatformRequest(BaseModel):
+    name: str
+    url: str
+    category: str = "JOB_BOARD"
+    requires_auth: bool = False
+    auth_username: Optional[str] = None
+    auth_password: Optional[str] = None
+    auth_notes: Optional[str] = None
+    crawl_frequency_hours: int = 6
+
+
+class UpdatePlatformRequest(BaseModel):
+    name: Optional[str] = None
+    url: Optional[str] = None
+    status: Optional[str] = None
+    category: Optional[str] = None
+    requires_auth: Optional[bool] = None
+    auth_username: Optional[str] = None
+    auth_password: Optional[str] = None
+    auth_notes: Optional[str] = None
+    crawl_frequency_hours: Optional[int] = None
+
+
+class HumanApplyRequest(BaseModel):
+    user_id: Optional[str] = None
+    password: Optional[str] = None
+
+
+class LinkedInConnectionsRequest(BaseModel):
+    count: int = 5
+    target_role: Optional[str] = None
+    note_template: Optional[str] = None
+
+
+class LinkedInCredentialsRequest(BaseModel):
+    username: str
+    password: str
+    cookies: Optional[str] = None
+
+
+class GenerateOutreachRequest(BaseModel):
+    opportunity_id: Optional[str] = None
+    tone: Optional[str] = "TECHNICAL"
 
 
 # -------------------------------------------------------------------
@@ -502,6 +557,47 @@ async def manual_import(req: ManualImportRequest, db: AsyncSession = Depends(get
     return opp
 
 
+@app.get("/api/opportunities/grouped-by-date")
+async def get_opportunities_grouped_by_date_endpoint(
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        data = await opp_service.get_opportunities_grouped_by_date(db, search=search, status=status)
+        formatted_groups = {}
+        for bucket, items in data["groups"].items():
+            formatted_groups[bucket] = [
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "company_name": item.company_name,
+                    "location": item.location,
+                    "remote_type": item.remote_type,
+                    "source": item.source,
+                    "url": item.url,
+                    "salary_min": item.salary_min,
+                    "salary_max": item.salary_max,
+                    "salary_currency": item.salary_currency,
+                    "hourly_rate": item.hourly_rate,
+                    "required_skills": item.required_skills,
+                    "status": item.status,
+                    "date_posted": item.date_posted.isoformat() if item.date_posted else item.created_at.isoformat(),
+                    "date_formatted": item.date_posted.strftime("%b %d, %Y") if item.date_posted else "Recent",
+                    "overall_match_score": item.matching_score.overall_match_score if item.matching_score else 0.0,
+                    "match_rationale": item.matching_score.match_rationale if item.matching_score else None,
+                }
+                for item in items
+            ]
+        return {
+            "total": data["total"],
+            "status_counts": data["status_counts"],
+            "groups": formatted_groups,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/opportunities/{opportunity_id}")
 async def get_opportunity(opportunity_id: str, db: AsyncSession = Depends(get_db)):
     opp = await opp_service.get_opportunity_by_id(db, opportunity_id)
@@ -668,13 +764,20 @@ async def update_crawler_schedule_endpoint(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class CreateSequenceRequest(BaseModel):
+    opportunity_id: Optional[str] = "general-opp"
+    contact_id: str
+
+
 @app.get("/api/contacts")
+@app.get("/api/crm/contacts")
 async def list_contacts(db: AsyncSession = Depends(get_db)):
     contacts = await CRMService.get_contacts(db)
     return contacts
 
 
 @app.post("/api/contacts")
+@app.post("/api/crm/contacts")
 async def create_contact(req: CreateContactRequest, db: AsyncSession = Depends(get_db)):
     contact = await CRMService.create_contact(
         db,
@@ -697,7 +800,14 @@ async def stage_outreach(
     return seq
 
 
+@app.post("/api/crm/sequences")
+async def create_crm_sequence_endpoint(req: CreateSequenceRequest, db: AsyncSession = Depends(get_db)):
+    seq = await CRMService.create_outreach_sequence(db, req.opportunity_id or "general-opp", req.contact_id)
+    return seq
+
+
 @app.get("/api/outreach")
+@app.get("/api/crm/sequences")
 async def list_outreach(db: AsyncSession = Depends(get_db)):
     seqs = await CRMService.get_outreach_sequences(db)
     return seqs
@@ -920,3 +1030,330 @@ async def run_linkedin_command_endpoint(req: LinkedInCommandRequest, db: AsyncSe
         return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# -------------------------------------------------------------------
+# Feature 1: Job / Project Web Scraper Platform & Automation Endpoints
+# -------------------------------------------------------------------
+
+@app.get("/api/platforms")
+async def get_platforms_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        platforms = await PlatformService.get_or_seed_platforms(db)
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "url": p.url,
+                "category": p.category,
+                "added_by": p.added_by,
+                "requires_auth": p.requires_auth,
+                "auth_username": p.auth_username,
+                "has_password": bool(p.auth_password),
+                "auth_notes": p.auth_notes,
+                "status": p.status,
+                "crawl_frequency_hours": p.crawl_frequency_hours,
+                "last_scraped_at": p.last_scraped_at.isoformat() if p.last_scraped_at else None,
+                "total_opportunities_found": p.total_opportunities_found,
+                "created_at": p.created_at.isoformat(),
+            }
+            for p in platforms
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/platforms")
+async def create_platform_endpoint(req: CreatePlatformRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        platform = await PlatformService.create_platform(
+            db=db,
+            name=req.name,
+            url=req.url,
+            category=req.category,
+            requires_auth=req.requires_auth,
+            auth_username=req.auth_username,
+            auth_password=req.auth_password,
+            auth_notes=req.auth_notes,
+            crawl_frequency_hours=req.crawl_frequency_hours,
+            added_by="USER",
+        )
+        return {
+            "id": platform.id,
+            "name": platform.name,
+            "url": platform.url,
+            "category": platform.category,
+            "added_by": platform.added_by,
+            "status": platform.status,
+            "message": "Platform added successfully.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/platforms/ai-discover")
+async def ai_discover_platforms_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        discovered = await PlatformService.ai_discover_platforms(db)
+        return {
+            "success": True,
+            "count": len(discovered),
+            "discovered_platforms": discovered,
+            "message": f"AI Scraper Agent evaluated web sources and added {len(discovered)} new platforms.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/platforms/{platform_id}")
+async def update_platform_endpoint(platform_id: str, req: UpdatePlatformRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        updated = await PlatformService.update_platform(db, platform_id, req.dict(exclude_unset=True))
+        return {
+            "id": updated.id,
+            "name": updated.name,
+            "status": updated.status,
+            "message": "Platform updated.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/platforms/{platform_id}")
+async def delete_platform_endpoint(platform_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        deleted = await PlatformService.delete_platform(db, platform_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Platform not found")
+        return {"success": True, "message": "Platform removed."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/platforms/{platform_id}/scrape")
+async def scrape_single_platform_endpoint(platform_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        result = await PlatformService.scrape_platform(db, platform_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/platforms/scrape-all")
+async def scrape_all_platforms_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        platforms = await PlatformService.get_or_seed_platforms(db)
+        total_discovered = 0
+        details = []
+        for p in platforms:
+            if p.status == "ACTIVE":
+                try:
+                    res = await PlatformService.scrape_platform(db, p.id)
+                    total_discovered += res.get("discovered_count", 0)
+                    details.append(res)
+                except Exception as ex:
+                    details.append({"platform_name": p.name, "error": str(ex)})
+
+        return {
+            "success": True,
+            "total_discovered": total_discovered,
+            "platforms_scraped": len([d for d in details if "error" not in d]),
+            "details": details,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# -------------------------------------------------------------------
+# Date-Grouped Opportunities & Human-Like Auto-Apply
+# -------------------------------------------------------------------
+
+
+@app.put("/api/opportunities/{opportunity_id}/user-status")
+async def update_opportunity_user_status_endpoint(
+    opportunity_id: str,
+    req: StatusUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        updated = await opp_service.update_opportunity_status(
+            db=db,
+            opportunity_id=opportunity_id,
+            new_status=req.status,
+            reason=req.reason or f"User manually updated status to {req.status}",
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Opportunity not found")
+        return {"id": updated.id, "status": updated.status, "message": "Status updated successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/opportunities/{opportunity_id}/human-apply")
+async def human_apply_endpoint(
+    opportunity_id: str,
+    req: HumanApplyRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        outcome = await opp_service.human_like_apply_opportunity(
+            db=db,
+            opportunity_id=opportunity_id,
+            user_id=req.user_id,
+            password=req.password,
+        )
+        return outcome
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# -------------------------------------------------------------------
+# Feature 2: LinkedIn Scraper & Selenium Automation Endpoints
+# -------------------------------------------------------------------
+
+@app.post("/api/linkedin/scrape-opportunities")
+async def scrape_linkedin_opportunities_endpoint(
+    keywords: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        opps = await LinkedInGrowthService.scrape_linkedin_opportunities(db, keywords=keywords)
+        return {
+            "success": True,
+            "total": len(opps),
+            "opportunities": opps,
+            "message": f"Successfully scraped {len(opps)} opportunities from LinkedIn.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/automate-connections")
+async def automate_linkedin_connections_endpoint(
+    req: LinkedInConnectionsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        res = await LinkedInGrowthService.automate_connections(
+            db=db,
+            count=req.count,
+            target_role=req.target_role,
+            note_template=req.note_template,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/credentials")
+async def get_linkedin_credentials_endpoint(db: AsyncSession = Depends(get_db)):
+    try:
+        creds = await LinkedInGrowthService.get_credentials(db)
+        return creds or {"configured": False}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/credentials")
+async def save_linkedin_credentials_endpoint(
+    req: LinkedInCredentialsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        res = await LinkedInGrowthService.save_credentials(
+            db=db,
+            username=req.username,
+            password=req.password,
+            cookies=req.cookies,
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/posts/{post_id}/publish")
+async def publish_linkedin_post_endpoint(
+    post_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        res = await LinkedInGrowthService.publish_content_post(db, post_id)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# -------------------------------------------------------------------
+# Feature 3: Automated Outreach & Networking CRM Endpoints
+# -------------------------------------------------------------------
+
+@app.post("/api/crm/contacts/{contact_id}/generate-outreach")
+async def generate_contact_outreach_endpoint(
+    contact_id: str,
+    req: GenerateOutreachRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        contact_res = await db.execute(select(ContactModel).where(ContactModel.id == contact_id))
+        contact = contact_res.scalar_one_or_none()
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        domain_prof = await ProfileService.get_domain_profile(db)
+        cand_name = domain_prof.full_name if domain_prof else "Candidate"
+        skills = ", ".join([s.skill_name for s in domain_prof.skills[:3]]) if domain_prof and domain_prof.skills else "Distributed Systems, Python, Next.js"
+
+        subject = f"Regarding opportunities at {contact.company_name} — {cand_name}"
+        body = (
+            f"Hi {contact.full_name.split()[0]},\n\n"
+            f"I came across your work leading technical recruitment/engineering at {contact.company_name}. "
+            f"I specialize in {skills} with a focus on high-reliability, cloud-native architecture.\n\n"
+            f"I'd love to connect and see if my technical background could be of value to your upcoming engineering roadmap.\n\n"
+            f"Best regards,\n{cand_name}"
+        )
+        return {
+            "contact_id": contact.id,
+            "subject": subject,
+            "body": body,
+            "channel": "EMAIL",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/crm/sequences/{sequence_id}/advance")
+async def advance_crm_sequence_endpoint(
+    sequence_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        stmt = (
+            select(OutreachSequenceModel)
+            .options(selectinload(OutreachSequenceModel.messages))
+            .where(OutreachSequenceModel.id == sequence_id)
+        )
+        res = await db.execute(stmt)
+        seq = res.scalar_one_or_none()
+        if not seq:
+            raise HTTPException(status_code=404, detail="Sequence not found")
+
+        pending_msgs = [m for m in seq.messages if m.status == "PENDING"]
+        if not pending_msgs:
+            return {"success": False, "message": "All steps in this cadence have already been dispatched."}
+
+        next_msg = sorted(pending_msgs, key=lambda m: m.step_number)[0]
+        sent = await CRMService.send_message(db, next_msg.id)
+        seq.current_step = next_msg.step_number + 1
+        await db.commit()
+
+        return {
+            "success": True,
+            "sequence_id": seq.id,
+            "dispatched_step": next_msg.step_number,
+            "subject": sent.subject,
+            "sent_at": sent.sent_at.isoformat() if sent.sent_at else None,
+            "message": f"Dispatched Step {next_msg.step_number} outreach email successfully.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+

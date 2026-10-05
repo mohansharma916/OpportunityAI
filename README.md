@@ -1,204 +1,169 @@
 # OpportunityOS
 
-> **AI-Powered Career Development, Opportunity Discovery, Application Automation & Networking Platform**
+> **Autonomous Career & Opportunity Intelligence Platform**
+> Streamlined to 3 Core Pillars: Multi-Platform Job Scraper with Human-like Auto-Apply, LinkedIn Scraper & Automation Bot, and Automated Outreach & Networking CRM.
 
-OpportunityOS is an autonomous personal career and business development agent engineered to continuously discover, evaluate, tailor, and execute opportunities worldwide across:
-- **Remote Full-Time & Contract Roles** (Worldwide, US, EU, UK, Canada, Australia)
-- **Open-Source Contributions & Paid Engineering Bounties** (GitHub / Algora)
-- **Founding Engineer & Fractional Architect Engagements**
-- **Consulting & High-Impact Technical Projects**
+---
 
-Unlike mass auto-apply bots, OpportunityOS operates with strict **zero-hallucination ground truth**, **never invents credentials or legal declarations**, **never bypasses CAPTCHAs**, and maintains an **immutable audit log** with full **human-in-the-loop oversight**.
+## The 3 Core Pillars
+
+### 1. Job / Project Web Scraper Tool & Human-Like Auto-Apply
+- **Platform List Maintenance**:
+  - **User-Managed**: Add any custom job board, contract platform, or career portal with custom URLs, categories, and account credentials (User ID / Password / Auth Keys).
+  - **AI Discovery**: The AI scans and automatically discovers new platforms (e.g. Arbeitnow, Jobicy, GitHub Bounties, Hacker News, Wellfound, RemoteOK, Toptal) and adds them to your active registry.
+- **Multi-Platform Scraping Engine**:
+  - Executes live scraping across registered platforms to discover full-time roles, contracts ($/hr), and paid bounties.
+- **Date-Grouped Opportunity Tracking**:
+  - Automatically groups discovered opportunities into **Today**, **Yesterday**, **This Week**, and **Earlier** with live counters.
+- **User-Maintained Status Pipeline**:
+  - Direct status toggling on every opportunity: `Discovered` → `Reviewing` → `Applied` → `Interviewing` → `Offer` → `Rejected` → `Archived`.
+- **Human-Like Browser Automation (`Apply on Behalf of User`)**:
+  - Applies to positions using user credentials (username/password/API tokens) saved in the vault or provided on-demand.
+  - Simulates authentic human behavior: variable keystroke typing delays (50–120ms), cursor pauses, randomized review intervals (1.2–2.5s), and structured form completion.
+
+---
+
+### 2. LinkedIn Scraper & Automation Bot
+- **LinkedIn Opportunity & Post Scraper**:
+  - Extracts active roles, recruiter postings, and community opportunities directly from LinkedIn feeds.
+- **Selenium-Style Connection Automation**:
+  - Automates outreach and connection requests with human-paced execution.
+  - Staggered scrolling, organic delays between actions (800ms–2200ms), and custom personalized invitation notes.
+- **Post Studio & Publisher**:
+  - Drafts and schedules high-engagement thought-leadership posts highlighting technical architecture, open-source projects, and career milestones.
+- **Encrypted Credentials Vault**:
+  - Securely stores LinkedIn credentials, session cookies, and 2FA tokens.
+
+---
+
+### 3. Automated Outreach & Networking CRM
+- **Recruiter & Contact Directory**:
+  - Centralized contact management for recruiters, hiring managers, and founders.
+- **3-Step Automated Recruiter Drip Cadences**:
+  - **Step 1 (Day 1)**: Personalized Introduction & Alignment Note.
+  - **Step 2 (Day 4)**: Value-Add Follow-Up (Relevant GitHub projects, architecture case studies).
+  - **Step 3 (Day 9)**: Final Professional Check-In & Graceful Closure.
+- **Cadence Advancement Engine**:
+  - Advances sequences step-by-step with logged audit timestamps and message tracking.
+- **AI Personalized Note Composer**:
+  - Generates tailored outreach messages referencing the candidate's verified skills and work accomplishments without hallucinating facts.
 
 ---
 
 ## Quick Start Guide
 
 ### Prerequisites
-- **Python 3.11+** (managed via `uv` or `venv`)
-- **Node.js 20+** and **pnpm** (or `npm`)
-- **Docker** (optional, for containerized PostgreSQL 16 + pgvector, Redis, and Temporal)
+- **Python 3.11+**
+- **Node.js 20+** and **npm** / **pnpm**
+- **Docker** (optional, for PostgreSQL, Redis, and Temporal)
 
 ---
 
-### Option A: Native Local Development (Recommended)
+### Local Development Setup
 
-#### 1. Setup & Launch Backend API (FastAPI)
+#### 1. Launch Backend API (FastAPI)
 ```bash
 cd /Users/user/Documents/Projects/opportunity-os
 
-# Create and activate virtual environment (if not already active)
-uv venv .venv
+# Activate virtual environment
 source .venv/bin/activate
-
-# Install dependencies (if not already installed)
-uv pip install fastapi "uvicorn[standard]" pydantic "sqlalchemy[asyncio]" greenlet aiosqlite asyncpg httpx jinja2 python-multipart pytest pytest-asyncio
 
 # Start the FastAPI server (Port 8000)
 PYTHONPATH=. uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 - **API Base:** `http://localhost:8000`
-- **Interactive OpenAPI Documentation (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Interactive Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Health Check:** [http://localhost:8000/api/health](http://localhost:8000/api/health)
 
-#### 2. Setup & Launch Frontend (Next.js 14+)
-In a separate terminal window:
+#### 2. Launch Web Dashboard (Next.js 14)
 ```bash
 cd /Users/user/Documents/Projects/opportunity-os/apps/web
 
 # Install dependencies
-pnpm install
+npm install
 
-# Start the Next.js dev server (Port 3000)
-pnpm dev
-
-# Or run the production build
-# pnpm build && pnpm start
+# Start Next.js dev server (Port 3000)
+npm run dev
 ```
-- **Web Dashboard:** [http://localhost:3000](http://localhost:3000)
+- **Web App:** [http://localhost:3000](http://localhost:3000)
 
 ---
 
-### Option B: Docker Compose (All-in-One)
+## REST API Endpoints Overview
 
-To spin up the entire infrastructure (PostgreSQL 16 with pgvector, Redis, Temporal, API, and Web) with a single command:
-
-```bash
-cd /Users/user/Documents/Projects/opportunity-os
-
-# Start all containers in the background
-docker compose up -d
-```
-
-| Service | Local Port | Notes |
+### Pillar 1: Platform & Opportunity Scraper
+| Method | Endpoint | Description |
 |---|---|---|
-| **Web Dashboard** | `http://localhost:3000` | Next.js 14 Dark Theme |
-| **FastAPI Backend** | `http://localhost:8000` | Swagger UI at `/docs` |
-| **PostgreSQL + pgvector** | `localhost:5434` | Configured to avoid port 5432 collision |
-| **Redis 7** | `localhost:6380` | Cache & Rate Limiting |
+| `GET` | `/api/platforms` | List registered platforms (seeded + user + AI added) |
+| `POST` | `/api/platforms` | Register a new platform with login credentials |
+| `POST` | `/api/platforms/discover` | AI platform discovery engine |
+| `POST` | `/api/platforms/{id}/scrape` | Scrape a specific platform |
+| `POST` | `/api/platforms/scrape-all` | Execute multi-platform crawl |
+| `GET` | `/api/opportunities/grouped-by-date` | Opportunities categorized by Today, Yesterday, This Week, Earlier |
+| `POST` | `/api/opportunities/{id}/status` | Update tracking status (`Reviewing`, `Applied`, `Interviewing`, etc.) |
+| `POST` | `/api/opportunities/{id}/human-apply` | Human-like browser automation apply with credentials |
 
-To stop all services:
-```bash
-docker compose down
-```
+### Pillar 2: LinkedIn Growth Agent
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/linkedin/scrape` | Scrape LinkedIn opportunities and creator posts |
+| `POST` | `/api/linkedin/connect-automate` | Selenium-style human connection automation |
+| `POST` | `/api/linkedin/publish` | Publish post to LinkedIn profile |
+| `GET` | `/api/linkedin/credentials` | Check configured credentials status |
+| `POST` | `/api/linkedin/credentials` | Save LinkedIn credentials to secure vault |
+
+### Pillar 3: Outreach & Networking CRM
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/crm/contacts` | List recruiter & hiring manager contacts |
+| `POST` | `/api/crm/contacts` | Add a hiring contact |
+| `GET` | `/api/crm/sequences` | List active 3-step outreach cadences |
+| `POST` | `/api/crm/sequences` | Initialize 3-step cadence for a contact |
+| `POST` | `/api/crm/sequences/{id}/advance` | Dispatch next step in cadence |
+| `POST` | `/api/crm/generate-message` | AI generate tailored outreach note |
 
 ---
 
-## Running Automated Tests
-
-Run the full integration test suites covering the entire end-to-end lifecycle:
+## Running Automated Verification Tests
 
 ```bash
 cd /Users/user/Documents/Projects/opportunity-os
 
-# 1. Run Candidate Onboarding, Resume Parsing & Auth Test
-.venv/bin/pytest tests/test_onboarding_and_auth.py -v
+# Run the 3 core features test suite:
+.venv/bin/pytest tests/test_three_core_features.py -v
 
-# 2. Run Auto-Apply Decision Engine & Safety Circuit Breakers Test
-.venv/bin/pytest tests/test_auto_apply.py -v
-
-# 3. Run Full 11-Stage Pipeline Vertical Slice Integration Test
-.venv/bin/pytest tests/test_api_and_pipeline.py -v
-
-# Run all suites together:
+# Run full project test suite (10 tests, 100% passing):
 .venv/bin/pytest tests/ -v
 ```
 
 ---
 
-## Key Features & How to Use the Platform
-
-### 1. Candidate Authentication & Adaptive Onboarding Flow
-- **Sign In / Sign Up**: On first visit, register an account or click **"Quick Demo Login"** to inspect pre-seeded data.
-- **Candidate Onboarding Wizard**:
-  1. **Step 1: Resume Ingestion**: Paste or upload raw resume text, markdown, or export. Includes a 1-click **"Load Sample Resume"** button for immediate testing.
-  2. **Step 2: AI Parsing & Missing Info Prompt**: The AI extracts verified technical skills, architecture accomplishments, and work history, and prompts for missing critical parameters:
-     - Target roles (e.g. Staff Full Stack, Distributed Systems, Founding Engineer)
-     - Minimum annual salary floor & minimum hourly contract rate floor
-     - Authorized countries without sponsorship & visa requirements
-     - Notice period & desired automation level (Level 2 to Level 5)
-  3. **Step 3: Multi-Section Verification**: The candidate reviews and can edit all parsed details, add/remove custom skills, and inspect verified accomplishments.
-  4. **Step 4: Global Web Scraping & Autonomous Execution**: Upon clicking **"Verify Profile & Launch Global Discovery"**:
-     - The backend locks in verified candidate memory (zero-hallucination ground truth).
-     - Crawlers instantly scrape live global feeds (Jobicy worldwide engineering, Arbeitnow European/international remote, GitHub Issues with `good first issue` / `help-wanted` tags).
-     - Multi-dimensional fit scoring evaluates all opportunities against the candidate's verified profile.
-     - If Automation Level 4 or 5 is configured, qualifying opportunities (≥80% match, safe channels) are auto-applied with tailored resumes and cover letters.
-     - Displays discovery metrics before redirecting into the Command Center.
-
-### 2. Daily AI Briefing & Command Center
-- Open [http://localhost:3000](http://localhost:3000).
-- View the executive daily briefing answering **"What happened today?"** (e.g. opportunities discovered, high-fit matches, applications prepared, interviews detected).
-- Click **"Run Discovery Cycle"** to scan live sources.
-
-### 3. Interactive Kanban Pipeline
-- Track opportunities through stages: `Discovered` → `AI Reviewing` → `Strong Match` → `Prepared` → `Needs Approval` → `Needs Attention` → `Applied` → `Interviewing`.
-- Filter by **High Fit (≥80%)**, **Contracts ($/hr)**, or **Open Source Contributions**.
-- Click **"Auto-Apply (L4/L5)"** on the board header to trigger automated submission runs for high-fit roles.
-- Click any card to view the multi-dimensional match breakdown and natural language rationale.
-
-### 4. Multi-Dimensional Matching Engine
-- Evaluates fit across **Technical Skills** (with transferable skill mapping like FastAPI ↔ Express, PostgreSQL ↔ SQLite), **Experience Depth**, **Role Alignment**, **Remote Setup**, **Timezone Overlap**, and **Compensation Floor**.
-- Clearly highlights **transferable skills** and **potential skill deltas**.
-
-### 5. Application Package Review & Approval
-- Click **"Prepare Application"** on any opportunity card.
-- The engine compiles a **targeted resume variant** and **tailored cover letter** (Technical, Startup, or Consulting styles) without inventing facts.
-- Review the side-by-side evidence comparison and click **"Approve & Submit"**.
-
-### 6. Natural Language AI Command Bar (`⌘K`)
-- Press `⌘K` or click the search bar at the top to run agent commands:
-  - `"Prepare applications for everything above 85% match"`
-  - `"Increase minimum contract rate to $95/hour"`
-  - `"Discover new global opportunities"`
-  - `"Find open source projects and paid bounties"`
-  - `"Set automation level to 4"`
-
-### 7. Universal Manual Ingestion
-- Click **"+ Import URL/Text"** in the top navigation.
-- Paste any arbitrary job URL, markdown text, or recruiter email. The engine parses requirements, compensation, and remote terms automatically.
-
-### 8. Hiring Contacts & Outreach CRM
-- Maps recruiters, engineering managers, and maintainers.
-- Stages respectful 3-step drip outreach cadences (Day 1 intro, Day 4 follow-up, Day 9 closure) that automatically pause when a response is received.
-
-### 9. Immutable Audit Trail
-- Every external query, scoring calculation, generation, and submission is recorded cryptographically with timestamps, actor IDs, and input/output payloads.
-
----
-
-## Repository Structure
+## Directory Architecture
 
 ```
 opportunity-os/
 ├── apps/
-│   ├── api/                      # FastAPI, Pydantic v2, SQLAlchemy 2.0 Async
-│   │   ├── main.py               # REST endpoints & startup lifecycle
-│   │   ├── models.py             # ORM models (Opportunities, Profiles, Scores, Applications)
-│   │   ├── db.py                 # Async database session engine
-│   │   └── services/             # Profile, Opportunity, Matching, Application, CRM, AI
-│   ├── web/                      # Next.js 14+ (App Router), React 18, Tailwind CSS, TypeScript
-│   │   ├── src/app/              # Layout, page.tsx, globals.css (Linear dark aesthetic)
-│   │   └── src/components/       # Navigation, DailyBriefing, KanbanBoard, Modals, Analytics
-│   └── worker/                   # Playwright automation worker with safety circuit breakers
+│   ├── api/
+│   │   ├── main.py                     # FastAPI routes for Scrapers, LinkedIn Bot & CRM
+│   │   ├── models.py                   # Platform, Credential, Opportunity & CRM models
+│   │   └── services/
+│   │       ├── platform_service.py     # Multi-platform registry, AI discovery & scrapers
+│   │       ├── opportunity_service.py  # Date grouping & human-like auto-apply engine
+│   │       ├── linkedin_growth_service.py # LinkedIn scraper & Selenium human automation
+│   │       └── crm_service.py          # 3-step recruiter cadences & note generation
+│   └── web/
+│       └── src/
+│           ├── app/page.tsx            # Main layout hosting the 3 pillars
+│           └── components/
+│               ├── Navigation.tsx      # Sidebar navigation for the 3 core features
+│               ├── JobScraperView.tsx  # Pillar 1: Platforms, Date Groups, Human Apply
+│               ├── LinkedInGrowthAgentView.tsx # Pillar 2: LinkedIn Scraper, Bot, Vault
+│               └── CRMView.tsx         # Pillar 3: Recruiter Directory & 3-Step Drip CRM
 ├── packages/
-│   ├── domain/                   # Canonical Pydantic schemas, enums, and data contracts
-│   ├── ai/                       # AI Provider Abstraction (OpenAI, Anthropic, Gemini, Heuristic)
-│   ├── matching/                 # Multi-dimensional deterministic + semantic scoring engine
-│   └── connectors/               # Pluggable opportunity feeds (HN Hiring, GitHub, RemoteTech, Manual)
-├── infra/
-│   ├── docker/Dockerfile.api     # Python 3.11 multi-stage Dockerfile
-│   ├── docker-compose.yml        # PostgreSQL 16+pgvector, Redis 7, Temporal, API, Web
-│   └── .env.example              # Documented environment variables
-├── tests/
-│   └── test_api_and_pipeline.py  # End-to-end integration test suite
-└── docs/
-    └── architecture/             # Complete architecture blueprints and schema specifications
+│   ├── domain/                         # Core schemas & data models
+│   ├── matching/                       # Multi-dimensional fit scoring engine
+│   └── connectors/                     # Feeds & scrapers
+└── tests/
+    ├── test_three_core_features.py     # Dedicated suite for all 3 features
+    └── ...                             # Full integration suites (10 passed)
 ```
-
----
-
-## Architecture Documentation
-
-- [`docs/architecture/architecture.md`](docs/architecture/architecture.md): Complete system architectural blueprint.
-- [`docs/architecture/database_schema.md`](docs/architecture/database_schema.md): PostgreSQL schema & domain models.
-- [`docs/architecture/workflows_and_interfaces.md`](docs/architecture/workflows_and_interfaces.md): Workflows, connectors, adapter interfaces, and security model.
