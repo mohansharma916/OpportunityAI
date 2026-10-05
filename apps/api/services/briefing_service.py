@@ -43,13 +43,13 @@ class BriefingService:
 
         # Dynamically resolve user's actual candidate name
         resolved_name = None
-        if user_name and user_name.strip():
+        if user_name and user_name.strip() and user_name.strip().lower() not in ["alex", "alex morgan", "demo", "demo user"]:
             resolved_name = user_name.strip()
         elif user_id:
             u_stmt = select(UserModel).where(UserModel.id == user_id)
             u_res = await db.execute(u_stmt)
             user_rec = u_res.scalar_one_or_none()
-            if user_rec and user_rec.full_name and user_rec.full_name.strip():
+            if user_rec and user_rec.full_name and user_rec.full_name.strip() and user_rec.full_name.strip().lower() not in ["alex", "alex morgan", "demo", "demo user"]:
                 resolved_name = user_rec.full_name.strip()
 
         # Query candidate profile for name & actual skills
@@ -75,16 +75,25 @@ class BriefingService:
             profile_model = p_res.scalar_one_or_none()
 
         if not resolved_name and profile_model and profile_model.full_name and profile_model.full_name.strip():
-            resolved_name = profile_model.full_name.strip()
+            candidate_val = profile_model.full_name.strip()
+            if candidate_val.lower() not in ["alex", "alex morgan", "demo", "demo user"]:
+                resolved_name = candidate_val
 
         if not resolved_name:
-            latest_u_stmt = select(UserModel).order_by(UserModel.created_at.desc()).limit(1)
+            latest_u_stmt = (
+                select(UserModel)
+                .where(~UserModel.email.ilike("%alex.morgan%"))
+                .where(~UserModel.full_name.ilike("%alex morgan%"))
+                .order_by(UserModel.created_at.desc())
+                .limit(1)
+            )
             latest_u_res = await db.execute(latest_u_stmt)
             latest_u = latest_u_res.scalar_one_or_none()
             if latest_u and latest_u.full_name and latest_u.full_name.strip():
-                resolved_name = latest_u.full_name.strip()
+                if latest_u.full_name.strip().lower() not in ["alex", "alex morgan", "demo", "demo user"]:
+                    resolved_name = latest_u.full_name.strip()
 
-        # Format greeting dynamically
+        # Format greeting dynamically using actual user first name
         if resolved_name:
             first_name = resolved_name.split()[0]
             greeting = f"Good morning {first_name}."

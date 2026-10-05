@@ -18,18 +18,31 @@ def hash_password(password: str) -> str:
 class AuthService:
     @staticmethod
     async def get_or_create_demo_user(db: AsyncSession) -> UserModel:
-        email = "alex.morgan.dev@gmail.com"
-        stmt = select(UserModel).where(UserModel.email == email)
+        # 1. If an actual registered user exists, return the latest registered user
+        stmt = (
+            select(UserModel)
+            .where(~UserModel.email.ilike("%alex.morgan%"))
+            .order_by(UserModel.created_at.desc())
+        )
         res = await db.execute(stmt)
-        user = res.scalar_one_or_none()
+        user = res.scalars().first()
         if user:
             return user
 
+        # 2. Check for existing generic demo user
+        demo_email = "engineer@opportunityos.internal"
+        stmt_demo = select(UserModel).where(UserModel.email == demo_email)
+        res_demo = await db.execute(stmt_demo)
+        demo_user = res_demo.scalar_one_or_none()
+        if demo_user:
+            return demo_user
+
+        # 3. Create generic demo user
         user = UserModel(
             id=str(uuid.uuid4()),
-            email=email,
+            email=demo_email,
             hashed_password=hash_password("password123"),
-            full_name="Alex Morgan",
+            full_name="Lead Engineer",
             is_active=True,
             onboarding_completed=True,
         )

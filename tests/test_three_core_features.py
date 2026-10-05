@@ -109,7 +109,7 @@ async def test_feature_2_linkedin_scraper_and_selenium_automation():
 
         # 2. Save and Retrieve LinkedIn Credentials
         creds_payload = {
-            "username": "alex.engineer@example.com",
+            "username": "dev.engineer@example.com",
             "password": "linkedinpassword",
             "cookies": "li_at=AQEDAR05189XYZ...",
         }
@@ -118,7 +118,7 @@ async def test_feature_2_linkedin_scraper_and_selenium_automation():
 
         res_get_cred = await client.get("/api/linkedin/credentials")
         assert res_get_cred.status_code == 200
-        assert res_get_cred.json()["username"] == "alex.engineer@example.com"
+        assert res_get_cred.json()["username"] == "dev.engineer@example.com"
 
         # 3. Run Selenium-Style Connection Automation Bot
         conn_payload = {
@@ -144,6 +144,49 @@ async def test_feature_2_linkedin_scraper_and_selenium_automation():
         res_pub = await client.post(f"/api/linkedin/posts/{post_id}/publish")
         assert res_pub.status_code == 200
         assert res_pub.json()["status"] == "PUBLISHED"
+
+        # 5. Multi-Type Post Scraping (Hiring, Freelancing, Collab, Interesting)
+        res_multi_scraped = await client.get("/api/linkedin/scraped-posts")
+        assert res_multi_scraped.status_code == 200
+        scraped_posts = res_multi_scraped.json()
+        assert len(scraped_posts) >= 4
+        # Verify presence of multiple types
+        types_found = {p["scrape_type"] for p in scraped_posts}
+        assert "HIRING_POST" in types_found
+        assert "FREELANCE_GIG" in types_found
+        assert "INTERESTING_POST" in types_found
+
+        target_scraped = scraped_posts[0]
+        scraped_id = target_scraped["id"]
+
+        # 6. Analyze Post Dynamics in Post Studio
+        res_analysis = await client.post(f"/api/linkedin/posts/{scraped_id}/analyze")
+        assert res_analysis.status_code == 200
+        analysis_data = res_analysis.json()
+        assert "hook_technique" in analysis_data
+        assert "human_angles" in analysis_data
+        assert len(analysis_data["human_angles"]) >= 3
+
+        # 7. Synthesize Human-like Post based on Analysis
+        angle_key = analysis_data["human_angles"][0]["key"]
+        res_synth = await client.post(
+            f"/api/linkedin/posts/{scraped_id}/synthesize-human-post",
+            json={"angle_key": angle_key, "custom_notes": "Tested in our multi-worker cluster."},
+        )
+        assert res_synth.status_code == 200
+        synth_data = res_synth.json()
+        assert "content_text" in synth_data
+        assert synth_data["post_type"] == "HUMAN_SYNTHESIS"
+        assert synth_data["quality_checks"]["human_rhythm_verified"] is True
+        assert len(synth_data["content_text"]) > 200
+
+        # 8. Check Post Studio Analyzed Library Tracking
+        res_lib = await client.get("/api/linkedin/post-studio/library")
+        assert res_lib.status_code == 200
+        lib_data = res_lib.json()
+        assert len(lib_data) >= 1
+        assert lib_data[0]["id"] == scraped_id
+        assert lib_data[0]["linked_draft"] is not None
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,18 @@ import {
   Briefcase,
   AlertCircle,
   X,
+  ThumbsUp,
+  Repeat,
+  Wand2,
+  BookOpen,
+  Filter,
+  Lightbulb,
+  Compass,
+  Copy,
+  Check,
+  UserPlus,
+  Layers,
+  TrendingUp,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 
@@ -37,14 +49,28 @@ interface LinkedInGrowthAgentViewProps {
 }
 
 export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInGrowthAgentViewProps) {
-  const [activeTab, setActiveTab] = useState<'opportunities' | 'connections' | 'posts' | 'credentials'>('opportunities');
+  const [activeTab, setActiveTab] = useState<'scraped_posts' | 'post_studio' | 'connections' | 'credentials'>('scraped_posts');
   const [loading, setLoading] = useState(false);
 
-  // 1. LinkedIn Scraped Opportunities State
-  const [scrapedOpportunities, setScrapedOpportunities] = useState<any[]>([]);
-  const [isScrapingOpps, setIsScrapingOpps] = useState(false);
+  // 1. Multi-Type Scraped Posts State
+  const [scrapedPosts, setScrapedPosts] = useState<any[]>([]);
+  const [scrapeTypeFilter, setScrapeTypeFilter] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isScrapingPosts, setIsScrapingPosts] = useState(false);
 
-  // 2. Selenium Connection Automation State
+  // 2. Post Studio & Human Synthesis State
+  const [activeStudioPost, setActiveStudioPost] = useState<any | null>(null);
+  const [analysisData, setAnalysisData] = useState<any | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [selectedAngleKey, setSelectedAngleKey] = useState<string>('PERSONAL_PRODUCTION_EXPERIENCE');
+  const [customStudioNotes, setCustomStudioNotes] = useState('');
+  const [synthesizedDraft, setSynthesizedDraft] = useState<any | null>(null);
+  const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [analyzedLibrary, setAnalyzedLibrary] = useState<any[]>([]);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isPublishingPost, setIsPublishingPost] = useState(false);
+
+  // 3. Selenium Connection Automation State
   const [relationships, setRelationships] = useState<any[]>([]);
   const [connectionBatchCount, setConnectionBatchCount] = useState<number>(3);
   const [customNoteTemplate, setCustomNoteTemplate] = useState<string>('');
@@ -53,14 +79,6 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
   const [seleniumLogs, setSeleniumLogs] = useState<any[]>([]);
   const [recentRecipients, setRecentRecipients] = useState<any[]>([]);
 
-  // 3. Post Automation State
-  const [contentPosts, setContentPosts] = useState<any[]>([]);
-  const [showCreatePostModal, setShowCreatePostModal] = useState(false);
-  const [newPostTitle, setNewPostTitle] = useState('');
-  const [newPostContent, setNewPostContent] = useState('');
-  const [newPostPillar, setNewPostPillar] = useState('Technical Deep-Dives');
-  const [isPublishingPostId, setIsPublishingPostId] = useState<string | null>(null);
-
   // 4. LinkedIn Credentials State
   const [linkedinUsername, setLinkedinUsername] = useState('');
   const [linkedinPassword, setLinkedinPassword] = useState('');
@@ -68,25 +86,33 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
   const [isSavingCreds, setIsSavingCreds] = useState(false);
   const [hasSavedCreds, setHasSavedCreds] = useState(false);
 
-  // Feedback Notification
+  // Notification Toast
   const [notification, setNotification] = useState<string | null>(null);
 
   // Initial Load
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const [oppsRes, relsRes, postsRes, credsRes] = await Promise.all([
-        fetchApi<any>('/api/linkedin/scrape-opportunities', { method: 'POST' }),
+      const [scrapedRes, relsRes, libRes, credsRes] = await Promise.all([
+        fetchApi<any[]>('/api/linkedin/scraped-posts'),
         fetchApi<any[]>('/api/linkedin/relationships'),
-        fetchApi<any[]>('/api/linkedin/content'),
+        fetchApi<any[]>('/api/linkedin/post-studio/library'),
         fetchApi<any>('/api/linkedin/credentials'),
       ]);
 
-      if (oppsRes && oppsRes.opportunities) {
-        setScrapedOpportunities(oppsRes.opportunities);
+      if (scrapedRes) {
+        setScrapedPosts(scrapedRes);
+        if (scrapedRes.length > 0 && !activeStudioPost) {
+          // Pre-select first interesting/hiring post for post studio
+          const interestingPost = scrapedRes.find((p) => p.scrape_type === 'INTERESTING_POST') || scrapedRes[0];
+          setActiveStudioPost(interestingPost);
+          if (interestingPost.is_analyzed && interestingPost.analysis_summary) {
+            setAnalysisData(interestingPost.analysis_summary);
+          }
+        }
       }
       if (relsRes) setRelationships(relsRes);
-      if (postsRes) setContentPosts(postsRes);
+      if (libRes) setAnalyzedLibrary(libRes);
       if (credsRes && credsRes.username) {
         setLinkedinUsername(credsRes.username);
         setHasSavedCreds(true);
@@ -103,26 +129,110 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
     loadInitialData();
   }, []);
 
-  // Scrape LinkedIn Opportunities
-  const handleScrapeOpportunities = async () => {
+  // Run Multi-Type Scrape
+  const handleRunMultiTypeScrape = async () => {
     try {
-      setIsScrapingOpps(true);
-      const res = await fetchApi<any>('/api/linkedin/scrape-opportunities', {
-        method: 'POST',
-      });
-      if (res && res.opportunities) {
-        setScrapedOpportunities(res.opportunities);
-        setNotification(`Discovered ${res.total} active opportunities on LinkedIn matching your target skills!`);
+      setIsScrapingPosts(true);
+      const res = await fetchApi<any[]>(`/api/linkedin/scraped-posts${scrapeTypeFilter !== 'ALL' ? `?scrape_type=${scrapeTypeFilter}` : ''}`);
+      if (res) {
+        setScrapedPosts(res);
+        setNotification(`Scraped ${res.length} LinkedIn posts across hiring, contracts, collaborations & industry discussions!`);
       }
-    } catch (err) {
-      console.error('Failed to scrape LinkedIn opportunities:', err);
+    } catch (err: any) {
+      console.error('Failed to scrape posts:', err);
     } finally {
-      setIsScrapingOpps(false);
+      setIsScrapingPosts(false);
     }
   };
 
+  // Open Post in Post Studio & Analyze
+  const handleOpenInStudio = async (post: any) => {
+    setActiveStudioPost(post);
+    setActiveTab('post_studio');
+    if (post.is_analyzed && post.analysis_summary && post.analysis_summary.hook_technique) {
+      setAnalysisData(post.analysis_summary);
+    } else {
+      await handleAnalyzePost(post.id);
+    }
+  };
+
+  // Analyze Post Dynamics
+  const handleAnalyzePost = async (postId: string) => {
+    try {
+      setIsAnalyzing(true);
+      const analysis = await fetchApi<any>(`/api/linkedin/posts/${postId}/analyze`, {
+        method: 'POST',
+      });
+      if (analysis) {
+        setAnalysisData(analysis);
+        if (analysis.human_angles && analysis.human_angles.length > 0) {
+          setSelectedAngleKey(analysis.human_angles[0].key);
+        }
+        // Refresh library
+        const libRes = await fetchApi<any[]>('/api/linkedin/post-studio/library');
+        if (libRes) setAnalyzedLibrary(libRes);
+      }
+    } catch (err) {
+      console.error('Failed to analyze post:', err);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  // Synthesize Human-Like Post
+  const handleSynthesizeHumanPost = async () => {
+    if (!activeStudioPost) return;
+    try {
+      setIsSynthesizing(true);
+      const postDraft = await fetchApi<any>(`/api/linkedin/posts/${activeStudioPost.id}/synthesize-human-post`, {
+        method: 'POST',
+        body: JSON.stringify({
+          angle_key: selectedAngleKey,
+          custom_notes: customStudioNotes || undefined,
+        }),
+      });
+      if (postDraft) {
+        setSynthesizedDraft(postDraft);
+        setNotification('Humanized post synthesized! Grounded in your real experience without robotic AI buzzwords.');
+        // Refresh library
+        const libRes = await fetchApi<any[]>('/api/linkedin/post-studio/library');
+        if (libRes) setAnalyzedLibrary(libRes);
+      }
+    } catch (err) {
+      console.error('Failed to synthesize post:', err);
+    } finally {
+      setIsSynthesizing(false);
+    }
+  };
+
+  // Publish Post
+  const handlePublishPost = async () => {
+    if (!synthesizedDraft) return;
+    try {
+      setIsPublishingPost(true);
+      const res = await fetchApi<any>(`/api/linkedin/posts/${synthesizedDraft.id}/publish`, {
+        method: 'POST',
+      });
+      if (res) {
+        setSynthesizedDraft({ ...synthesizedDraft, status: 'PUBLISHED' });
+        setNotification('Post successfully published to your LinkedIn profile!');
+      }
+    } catch (err) {
+      console.error('Failed to publish post:', err);
+    } finally {
+      setIsPublishingPost(false);
+    }
+  };
+
+  // Copy to clipboard
+  const handleCopyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
   // Run Selenium Connection Automation
-  const handleRunConnectionAutomation = async () => {
+  const handleRunConnectionAutomation = async (customNote?: string) => {
     try {
       setIsAutomatingConnections(true);
       setSeleniumLogs([
@@ -138,20 +248,17 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
         body: JSON.stringify({
           count: connectionBatchCount,
           target_role: targetRoleFilter,
-          note_template: customNoteTemplate || null,
+          note_template: customNote || customNoteTemplate || undefined,
         }),
       });
 
       if (res && res.logs) {
         setSeleniumLogs(res.logs);
         setRecentRecipients(res.recipients || []);
-        setNotification(`Selenium bot dispatched ${res.connected_count} connection invitations with human delays.`);
-        // Reload relationships
-        const relsRes = await fetchApi<any[]>('/api/linkedin/relationships');
-        if (relsRes) setRelationships(relsRes);
+        setNotification(`Dispatched ${res.connected_count} connection invitations with human delays!`);
       }
     } catch (err) {
-      console.error('Failed connection automation:', err);
+      console.error('Connection automation error:', err);
     } finally {
       setIsAutomatingConnections(false);
     }
@@ -167,61 +274,37 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
         body: JSON.stringify({
           username: linkedinUsername,
           password: linkedinPassword,
-          cookies: linkedinCookies || null,
+          cookies: linkedinCookies || undefined,
         }),
       });
       setHasSavedCreds(true);
-      setNotification('LinkedIn credentials securely stored for automation.');
-    } catch (err) {
-      console.error('Failed to save credentials:', err);
+      setNotification('LinkedIn credentials saved securely.');
+    } catch (err: any) {
+      alert(`Failed to save credentials: ${err.message}`);
     } finally {
       setIsSavingCreds(false);
     }
   };
 
-  // Publish Post
-  const handlePublishPost = async (postId: string) => {
-    try {
-      setIsPublishingPostId(postId);
-      const res = await fetchApi<any>(`/api/linkedin/posts/${postId}/publish`, {
-        method: 'POST',
-      });
-      setNotification(`Published post "${res.title}" to LinkedIn!`);
-      const updated = await fetchApi<any[]>('/api/linkedin/content');
-      if (updated) setContentPosts(updated);
-    } catch (err) {
-      console.error('Failed to publish post:', err);
-    } finally {
-      setIsPublishingPostId(null);
-    }
-  };
-
-  // Generate Sample High-Signal Post
-  const handleGenerateAiPost = async () => {
-    try {
-      const res = await fetchApi<any>('/api/linkedin/content/generate', {
-        method: 'POST',
-        body: JSON.stringify({
-          post_type: 'TECHNICAL_BREAKDOWN',
-          topic_pillar: newPostPillar,
-        }),
-      });
-      if (res) {
-        setNewPostTitle(res.title || 'Architectural Deep Dive: Distributed Latency');
-        setNewPostContent(res.content_text || '');
-      }
-    } catch (err) {
-      console.error('Failed AI post generation:', err);
-    }
-  };
+  // Filtered scraped posts
+  const filteredPosts = scrapedPosts.filter((post) => {
+    const matchesType = scrapeTypeFilter === 'ALL' || post.scrape_type === scrapeTypeFilter;
+    const matchesSearch =
+      !searchQuery ||
+      post.author_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      post.author_company?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      post.post_text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      post.role_or_project_title?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesType && matchesSearch;
+  });
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 pb-16">
+    <div className="space-y-6">
       {/* Toast Notification */}
       {notification && (
-        <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-600/30 to-purple-500/20 border border-indigo-500/40 text-indigo-200 text-xs font-medium flex items-center justify-between shadow-lg">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-300" />
+        <div className="p-3.5 rounded-xl bg-gradient-to-r from-brand-950/80 to-surface-300 border border-brand-500/40 text-brand-300 text-xs flex items-center justify-between shadow-lg shadow-brand-950/40 animate-in fade-in">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-4 h-4 text-brand-400" />
             <span>{notification}</span>
           </div>
           <button onClick={() => setNotification(null)} className="text-zinc-400 hover:text-white">
@@ -230,551 +313,753 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
         </div>
       )}
 
-      {/* Hero Header */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-surface-300 via-surface-300/90 to-surface-200 border border-white/10 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <div className="flex items-center gap-2.5 mb-2">
-            <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px] font-mono font-bold border border-indigo-500/30 flex items-center gap-1">
-              <Share2 className="w-3 h-3" />
-              Feature #2
-            </span>
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 text-[10px] font-mono border border-emerald-800/40 flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3" />
-              Selenium Automation Enabled
-            </span>
-          </div>
-          <h1 className="text-2xl font-black text-white tracking-tight">
-            LinkedIn Scraper & Automation Bot
-          </h1>
-          <p className="text-xs text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-            Scrape available LinkedIn opportunities & posts, automate connection requests with Selenium-style human pacing,
-            and create & publish authority engineering posts.
-          </p>
+      {/* Sub-Feature Tab Switcher */}
+      <div className="flex items-center justify-between border-b border-white/5 pb-3">
+        <div className="flex items-center gap-2 bg-surface-200/80 p-1 rounded-xl border border-white/5">
+          <button
+            onClick={() => setActiveTab('scraped_posts')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'scraped_posts'
+                ? 'bg-brand-500 text-white shadow-glow'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>Multi-Type Scraper</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/10">{scrapedPosts.length}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('post_studio')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'post_studio'
+                ? 'bg-brand-500 text-white shadow-glow'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+            }`}
+          >
+            <Wand2 className="w-3.5 h-3.5" />
+            <span>LinkedIn Post Studio</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300">Human Voice</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('connections')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'connections'
+                ? 'bg-brand-500 text-white shadow-glow'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            <span>Selenium Connection Bot</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('credentials')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'credentials'
+                ? 'bg-brand-500 text-white shadow-glow'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+            }`}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span>Credentials Vault</span>
+            {hasSavedCreds && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+          </button>
         </div>
 
-        {/* Quick Credentials Indicator */}
-        <div className="flex items-center gap-3">
-          <div className="p-3.5 rounded-xl bg-surface-400/80 border border-white/5 text-right min-w-[130px]">
-            <span className="text-[10px] font-mono text-zinc-400 uppercase font-bold block">Auth Status</span>
-            <span className={`text-xs font-bold ${hasSavedCreds ? 'text-emerald-400' : 'text-amber-400'}`}>
-              {hasSavedCreds ? 'Logged In / Active' : 'Login Required'}
-            </span>
-          </div>
-        </div>
+        {activeTab === 'scraped_posts' && (
+          <button
+            onClick={handleRunMultiTypeScrape}
+            disabled={isScrapingPosts}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-400 border border-white/10 text-xs font-medium text-white transition-all shadow-sm"
+          >
+            {isScrapingPosts ? <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400" /> : <RefreshCw className="w-3.5 h-3.5 text-brand-400" />}
+            <span>{isScrapingPosts ? 'Scraping Live LinkedIn Feeds...' : 'Run Multi-Type Scrape'}</span>
+          </button>
+        )}
       </div>
 
-      {/* Feature Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-white/5 pb-2 overflow-x-auto">
-        {[
-          { id: 'opportunities', label: '1. Scrape Opportunities', icon: Briefcase, count: scrapedOpportunities.length },
-          { id: 'connections', label: '2. Connection Automation (Selenium)', icon: UserCheck, count: relationships.length },
-          { id: 'posts', label: '3. Post Studio & Publisher', icon: FileText, count: contentPosts.length },
-          { id: 'credentials', label: '4. Credentials Vault', icon: KeyRound },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                isActive
-                  ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
-                  : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-              {tab.count !== undefined && (
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                    isActive ? 'bg-indigo-400 text-black font-extrabold' : 'bg-surface-200 text-zinc-400'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* TAB 1: Scrape LinkedIn Opportunities */}
-      {activeTab === 'opportunities' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-white/5 pb-3">
-            <div>
-              <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-                Discovered LinkedIn Opportunities ({scrapedOpportunities.length})
-              </h2>
-              <p className="text-[11px] text-zinc-400">
-                Live & scraped listings from LinkedIn matching candidate technical stack & salary floor.
-              </p>
-            </div>
-            <button
-              onClick={handleScrapeOpportunities}
-              disabled={isScrapingOpps}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-glow transition-all disabled:opacity-50"
-            >
-              {isScrapingOpps ? (
-                <Loader2 className="w-4 h-4 animate-spin text-white" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              <span>Scrape LinkedIn Now</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {scrapedOpportunities.map((opp) => (
-              <div
-                key={opp.id}
-                className="p-4 rounded-xl bg-surface-300/80 border border-white/10 hover:border-indigo-500/40 transition-all shadow-sm space-y-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/40 font-bold">
-                      LinkedIn Easy Apply
-                    </span>
-                    <h3 className="text-sm font-bold text-white mt-1.5">{opp.title}</h3>
-                    <p className="text-xs text-zinc-300 font-semibold flex items-center gap-1 mt-0.5">
-                      <Building2 className="w-3 h-3 text-zinc-400" /> {opp.company_name}
-                    </p>
-                  </div>
-                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
-                    {Math.round(opp.match_score)}% Match
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
-                  <span>{opp.location}</span>
-                  <span>•</span>
-                  <span className="text-emerald-400 font-mono font-semibold">{opp.salary_range}</span>
-                  <span>•</span>
-                  <span>Posted {opp.date_posted}</span>
-                </div>
-
-                {opp.required_skills && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {opp.required_skills.map((s: string, idx: number) => (
-                      <span
-                        key={idx}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-400 text-zinc-300 border border-white/5"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                  <a
-                    href={opp.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
-                  >
-                    <span>View on LinkedIn</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-
+      {/* =========================================================================
+          TAB 1: MULTI-TYPE LINKEDIN SCRAPER
+         ========================================================================= */}
+      {activeTab === 'scraped_posts' && (
+        <div className="space-y-5">
+          {/* Filter Bar & Search */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Category Pills */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { key: 'ALL', label: 'All Scraped Posts', icon: Layers, count: scrapedPosts.length },
+                { key: 'HIRING_POST', label: 'Hiring in Posts', icon: Briefcase, count: scrapedPosts.filter((p) => p.scrape_type === 'HIRING_POST').length },
+                { key: 'FREELANCE_GIG', label: 'Freelance & Contracts', icon: Flame, count: scrapedPosts.filter((p) => p.scrape_type === 'FREELANCE_GIG').length },
+                { key: 'PROJECT_COLLAB', label: 'Project Collaboration', icon: Users, count: scrapedPosts.filter((p) => p.scrape_type === 'PROJECT_COLLAB').length },
+                { key: 'INTERESTING_POST', label: 'Interesting Tech Posts', icon: Lightbulb, count: scrapedPosts.filter((p) => p.scrape_type === 'INTERESTING_POST').length },
+              ].map((pill) => {
+                const Icon = pill.icon;
+                const isSelected = scrapeTypeFilter === pill.key;
+                return (
                   <button
-                    onClick={() => setNotification(`Application for ${opp.company_name} prepared using tailored resume.`)}
-                    className="px-3 py-1 rounded-lg text-xs font-bold bg-white/5 hover:bg-white/10 text-white transition-all"
+                    key={pill.key}
+                    onClick={() => setScrapeTypeFilter(pill.key)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      isSelected
+                        ? 'bg-brand-500/20 text-brand-300 border border-brand-500/40 shadow-sm'
+                        : 'bg-surface-200/60 text-zinc-400 border border-white/5 hover:text-zinc-200 hover:bg-surface-300'
+                    }`}
                   >
-                    Auto-Apply Package
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{pill.label}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/20 text-zinc-300">{pill.count}</span>
                   </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: Selenium Connection Automation Bot */}
-      {activeTab === 'connections' && (
-        <div className="space-y-6">
-          {/* Controls Bar */}
-          <div className="p-5 rounded-2xl bg-surface-300/80 border border-white/10 shadow-lg space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <UserCheck className="w-4 h-4 text-indigo-400" />
-                  Selenium Connection Automation Configuration
-                </h3>
-                <p className="text-xs text-zinc-400 mt-0.5">
-                  Automate connection invitations with realistic mouse curves, profile scroll pacing, and custom notes.
-                </p>
-              </div>
-
-              <button
-                onClick={handleRunConnectionAutomation}
-                disabled={isAutomatingConnections}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-purple-500 hover:from-indigo-500 hover:to-purple-400 text-white shadow-glow transition-all disabled:opacity-50"
-              >
-                {isAutomatingConnections ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                ) : (
-                  <Play className="w-4 h-4 fill-white" />
-                )}
-                <span>Run Selenium Connection Bot</span>
-              </button>
+                );
+              })}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-white/5 text-xs">
-              <div>
-                <label className="block text-zinc-300 font-medium mb-1">Target Persona</label>
-                <select
-                  value={targetRoleFilter}
-                  onChange={(e) => setTargetRoleFilter(e.target.value)}
-                  className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="Engineering Leaders & Recruiters">VP of Eng & Tech Recruiters</option>
-                  <option value="Startup Founders">Early-Stage Founders (YC / Techstars)</option>
-                  <option value="Staff Engineers">Staff & Principal Systems Engineers</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-zinc-300 font-medium mb-1">Daily Safe Limit (Connections)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="20"
-                  value={connectionBatchCount}
-                  onChange={(e) => setConnectionBatchCount(parseInt(e.target.value) || 3)}
-                  className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-300 font-medium mb-1">Custom Note Template (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Hi {name}, saw your work on distributed systems..."
-                  value={customNoteTemplate}
-                  onChange={(e) => setCustomNoteTemplate(e.target.value)}
-                  className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+            {/* Search Input */}
+            <div className="relative min-w-[220px]">
+              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search author, role, or text..."
+                className="w-full bg-surface-200/80 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500/50"
+              />
             </div>
           </div>
 
-          {/* Live Selenium Execution Console */}
-          <div className="p-4 rounded-xl bg-black/90 border border-white/10 font-mono text-[11px] text-zinc-300 space-y-2">
-            <div className="flex items-center justify-between text-zinc-500 text-[10px] pb-1 border-b border-white/10">
-              <span className="flex items-center gap-1.5 text-zinc-400 font-bold">
-                <Terminal className="w-3.5 h-3.5 text-purple-400" /> SELENIUM WEBDRIVER LIVE TERMINAL
-              </span>
-              <span>
-                BOT STATUS: {isAutomatingConnections ? 'EXECUTING_SELENIUM_ACTIONS' : seleniumLogs.length > 0 ? 'BATCH_COMPLETED' : 'IDLE'}
-              </span>
-            </div>
-
-            {seleniumLogs.length === 0 ? (
-              <div className="text-zinc-600 italic py-4 text-center">
-                Click 'Run Selenium Connection Bot' to launch browser driver, visit candidate profiles, and inject personalized notes.
-              </div>
-            ) : (
-              <div className="space-y-1.5 max-h-52 overflow-y-auto pt-1">
-                {seleniumLogs.map((log, idx) => (
-                  <div key={idx} className="flex items-start gap-2 animate-in fade-in">
-                    <span className="text-zinc-500 shrink-0">{log.timestamp}</span>
-                    <span className="text-purple-400 font-semibold shrink-0">[{log.engine || 'Selenium'}]</span>
-                    <span className="text-zinc-200">{log.message}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Connections Directory */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold text-white font-mono uppercase tracking-wider">
-              Network Relationship Pipeline ({relationships.length})
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {relationships.map((rel) => (
-                <div
-                  key={rel.id}
-                  className="p-4 rounded-xl bg-surface-300/80 border border-white/10 space-y-2.5 flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-zinc-400">
-                        {rel.category || 'RECRUITER'}
-                      </span>
-                      <span
-                        className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold ${
-                          rel.relationship_stage === 'CONNECTED'
-                            ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-800/50'
-                            : 'bg-indigo-950/70 text-indigo-300 border border-indigo-800/50'
-                        }`}
-                      >
-                        {rel.relationship_stage}
-                      </span>
-                    </div>
-
-                    <h4 className="text-xs font-bold text-white mt-2">{rel.full_name}</h4>
-                    <p className="text-[11px] text-zinc-400">{rel.role} @ <span className="text-zinc-200 font-semibold">{rel.company}</span></p>
-                    <p className="text-[11px] text-zinc-400 italic line-clamp-2 mt-1">{rel.why_connect}</p>
-                  </div>
-
-                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px]">
-                    <span className="text-zinc-400 font-mono">Score: {rel.relationship_score}%</span>
-                    <a
-                      href={rel.linkedin_url || '#'}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
-                    >
-                      <span>Profile</span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: Post Studio & Publisher */}
-      {activeTab === 'posts' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-white/5 pb-3">
-            <div>
-              <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-                LinkedIn Post Studio ({contentPosts.length})
-              </h2>
-              <p className="text-[11px] text-zinc-400">
-                Draft, schedule, and publish high-engagement technical authority posts.
-              </p>
-            </div>
-
-            <button
-              onClick={() => setShowCreatePostModal(true)}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-glow transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Compose Post</span>
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {contentPosts.map((post) => {
-              const isPublished = post.status === 'PUBLISHED';
-              const isPublishing = isPublishingPostId === post.id;
+          {/* Scraped Posts List */}
+          <div className="grid grid-cols-1 gap-4">
+            {filteredPosts.map((post) => {
+              const isHiring = post.scrape_type === 'HIRING_POST';
+              const isFreelance = post.scrape_type === 'FREELANCE_GIG';
+              const isCollab = post.scrape_type === 'PROJECT_COLLAB';
+              const isInteresting = post.scrape_type === 'INTERESTING_POST';
 
               return (
                 <div
                   key={post.id}
-                  className="p-5 rounded-xl bg-surface-300/80 border border-white/10 space-y-3"
+                  className="p-5 rounded-2xl bg-surface-200/80 border border-white/5 hover:border-brand-500/30 transition-all space-y-4 shadow-xl"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950/70 text-indigo-300 border border-indigo-800/40 font-bold">
-                        {post.topic_pillar || 'Technical Deep-Dive'}
-                      </span>
-                      <h3 className="text-sm font-bold text-white mt-1.5">{post.title}</h3>
+                  {/* Author Header */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <img
+                        src={post.author_avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                        alt={post.author_name}
+                        className="w-10 h-10 rounded-full object-cover border border-white/10 flex-shrink-0"
+                      />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={post.author_profile_url || '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-bold text-white hover:text-brand-300 flex items-center gap-1"
+                          >
+                            <span>{post.author_name}</span>
+                            <ExternalLink className="w-3 h-3 text-zinc-500" />
+                          </a>
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-300 border border-white/5 text-zinc-400">
+                            {post.connection_degree}
+                          </span>
+                          <span className="text-[10px] text-zinc-500">• {post.posted_at_str}</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 mt-0.5 line-clamp-1">{post.author_headline}</p>
+                        <p className="text-[10px] text-brand-400/90 font-mono mt-0.5">{post.author_company}</p>
+                      </div>
                     </div>
 
-                    <span
-                      className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold ${
-                        isPublished
-                          ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                          : 'bg-amber-950/60 text-amber-300 border border-amber-800/40'
-                      }`}
-                    >
-                      {post.status}
-                    </span>
+                    {/* Scrape Type Badge */}
+                    <div className="flex flex-col items-end gap-1.5">
+                      <span
+                        className={`text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full uppercase border ${
+                          isHiring
+                            ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/30'
+                            : isFreelance
+                            ? 'bg-amber-950/60 text-amber-300 border-amber-500/30'
+                            : isCollab
+                            ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/30'
+                            : 'bg-purple-950/60 text-purple-300 border-purple-500/30'
+                        }`}
+                      >
+                        {isHiring && 'Hiring in Post'}
+                        {isFreelance && 'Freelance / Contract'}
+                        {isCollab && 'Project Collaboration'}
+                        {isInteresting && 'Industry Discussion'}
+                      </span>
+                      {post.compensation_or_budget && (
+                        <span className="text-[11px] font-mono font-semibold text-emerald-400">
+                          {post.compensation_or_budget}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  <p className="text-xs text-zinc-300 whitespace-pre-line leading-relaxed bg-surface-400/40 p-3 rounded-lg border border-white/5">
-                    {post.content_text}
-                  </p>
-
-                  <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                    <span className="text-[11px] text-zinc-400">
-                      {isPublished ? `Published ${post.published_at || 'Recently'}` : 'Ready for publication'}
-                    </span>
-
-                    {!isPublished ? (
-                      <button
-                        onClick={() => handlePublishPost(post.id)}
-                        disabled={isPublishing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-600 to-purple-500 hover:from-indigo-500 hover:to-purple-400 text-white shadow-glow transition-all disabled:opacity-50"
-                      >
-                        {isPublishing ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Send className="w-3.5 h-3.5" />
-                        )}
-                        <span>Publish to LinkedIn</span>
-                      </button>
-                    ) : (
-                      <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Live on LinkedIn
+                  {/* Role / Project Headline if present */}
+                  {post.role_or_project_title && (
+                    <div className="p-2.5 rounded-xl bg-surface-300/60 border border-white/5 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-zinc-200 flex items-center gap-2">
+                        <Briefcase className="w-3.5 h-3.5 text-brand-400" />
+                        {post.role_or_project_title}
                       </span>
-                    )}
+                      {post.how_to_apply && (
+                        <span className="text-[10px] font-mono text-zinc-400 bg-surface-400/60 px-2 py-0.5 rounded">
+                          Apply: {post.how_to_apply}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Post Content */}
+                  <div className="p-3.5 rounded-xl bg-surface-300/30 border border-white/5 text-xs text-zinc-300 leading-relaxed whitespace-pre-line font-sans">
+                    {post.post_text}
+                  </div>
+
+                  {/* Skills Tags */}
+                  {post.skills_required && post.skills_required.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {post.skills_required.map((skill: string, idx: number) => (
+                        <span key={idx} className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-white/5 text-zinc-300 border border-white/5">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Engagement Bar & Quick Actions */}
+                  <div className="pt-2 border-t border-white/5 flex flex-wrap items-center justify-between gap-3">
+                    {/* Metrics */}
+                    <div className="flex items-center gap-4 text-xs text-zinc-500 font-mono">
+                      <span className="flex items-center gap-1.5 hover:text-zinc-300">
+                        <ThumbsUp className="w-3.5 h-3.5 text-zinc-400" />
+                        <span>{post.likes_count}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 hover:text-zinc-300">
+                        <MessageSquare className="w-3.5 h-3.5 text-zinc-400" />
+                        <span>{post.comments_count}</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 hover:text-zinc-300">
+                        <Repeat className="w-3.5 h-3.5 text-zinc-400" />
+                        <span>{post.reposts_count}</span>
+                      </span>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleOpenInStudio(post)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 text-brand-300 border border-brand-500/30 text-xs font-semibold transition-all shadow-sm"
+                      >
+                        <Wand2 className="w-3.5 h-3.5 text-brand-400" />
+                        <span>Analyze & Create in Post Studio</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const note = `Hi ${post.author_name.split(' ')[0]}, saw your post regarding "${post.role_or_project_title || post.author_company}". Given my background in distributed systems, would love to connect!`;
+                          handleRunConnectionAutomation(note);
+                          setActiveTab('connections');
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-400 border border-white/10 text-xs font-medium text-zinc-200 transition-all"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Connect with {post.author_name.split(' ')[0]}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
             })}
+
+            {filteredPosts.length === 0 && (
+              <div className="p-12 text-center text-zinc-500 text-xs border border-dashed border-white/5 rounded-2xl">
+                No scraped LinkedIn posts match the selected filter. Click "Run Multi-Type Scrape" to scan feeds.
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* TAB 4: Credentials Vault */}
-      {activeTab === 'credentials' && (
-        <div className="max-w-xl mx-auto p-6 rounded-2xl bg-surface-300/80 border border-white/10 shadow-xl space-y-4">
-          <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-            <KeyRound className="w-5 h-5 text-indigo-400" />
+      {/* =========================================================================
+          TAB 2: LINKEDIN POST STUDIO (ANALYZE & SYNTHESIZE HUMAN POST)
+         ========================================================================= */}
+      {activeTab === 'post_studio' && (
+        <div className="space-y-6">
+          {/* Header Info */}
+          <div className="p-4 rounded-2xl bg-surface-200/80 border border-white/5 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-bold text-white">LinkedIn Automation Credentials Vault</h3>
-              <p className="text-xs text-zinc-400">
-                Credentials are used locally by the Selenium & Playwright bots to authenticate and perform human actions.
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Wand2 className="w-4 h-4 text-purple-400" />
+                <span>LinkedIn Post Studio — Human Voice Synthesizer</span>
+              </h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Analyze viral or high-signal posts from previous steps, extract underlying dynamics, and craft an authentically human response or counter-post.
               </p>
             </div>
+
+            {/* Quick Inspiration Selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-zinc-400 font-mono">Inspiration:</span>
+              <select
+                value={activeStudioPost?.id || ''}
+                onChange={(e) => {
+                  const found = scrapedPosts.find((p) => p.id === e.target.value);
+                  if (found) handleOpenInStudio(found);
+                }}
+                className="bg-surface-300 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-zinc-200 focus:outline-none focus:border-brand-500"
+              >
+                {scrapedPosts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.author_name} ({p.scrape_type}) — {p.role_or_project_title || p.author_company}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <form onSubmit={handleSaveCredentials} className="space-y-4 text-xs">
-            <div>
-              <label className="block text-zinc-300 font-medium mb-1">LinkedIn Username / Email</label>
-              <input
-                type="email"
-                required
-                placeholder="your.linkedin@example.com"
-                value={linkedinUsername}
-                onChange={(e) => setLinkedinUsername(e.target.value)}
-                className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
-              />
+          {/* 2-Column Studio Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* LEFT COLUMN: Source Post & Dynamic Analysis (5 cols) */}
+            <div className="lg:col-span-5 space-y-4">
+              {/* Selected Source Post Card */}
+              {activeStudioPost ? (
+                <div className="p-4 rounded-2xl bg-surface-200/80 border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                    <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <BookOpen className="w-3.5 h-3.5 text-brand-400" />
+                      Source Inspiration
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-300 border border-brand-500/20">
+                      {activeStudioPost.scrape_type}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src={activeStudioPost.author_avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}
+                      alt=""
+                      className="w-8 h-8 rounded-full object-cover border border-white/10"
+                    />
+                    <div>
+                      <div className="text-xs font-bold text-white">{activeStudioPost.author_name}</div>
+                      <div className="text-[10px] text-zinc-400">{activeStudioPost.author_company}</div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-zinc-300 italic line-clamp-4 bg-surface-300/40 p-2.5 rounded-lg border border-white/5">
+                    "{activeStudioPost.post_text}"
+                  </p>
+
+                  <button
+                    onClick={() => handleAnalyzePost(activeStudioPost.id)}
+                    disabled={isAnalyzing}
+                    className="w-full py-2 rounded-lg bg-surface-300 hover:bg-surface-400 border border-white/10 text-xs font-semibold text-brand-300 transition-all flex items-center justify-center gap-2"
+                  >
+                    {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    <span>{isAnalyzing ? 'Analyzing Narrative Dynamics...' : 'Re-Analyze Post Dynamics'}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-8 text-center text-xs text-zinc-500 border border-dashed border-white/10 rounded-2xl">
+                  Select a post from the Multi-Type Scraper tab to begin.
+                </div>
+              )}
+
+              {/* Analysis Results & Angle Selector */}
+              {analysisData && (
+                <div className="p-5 rounded-2xl bg-surface-200/80 border border-white/5 space-y-4 shadow-xl">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                    <span className="text-xs font-bold text-white flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4 text-amber-400" />
+                      Dynamic Breakdown
+                    </span>
+                    <span className="text-[10px] font-mono text-zinc-500">{analysisData.analyzed_at}</span>
+                  </div>
+
+                  {/* Hook Technique */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase font-mono text-zinc-400 tracking-wider">Hook Technique</span>
+                    <p className="text-xs font-medium text-emerald-300 bg-emerald-950/40 p-2 rounded-lg border border-emerald-500/20">
+                      {analysisData.hook_technique}
+                    </p>
+                  </div>
+
+                  {/* Tone & Delivery */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] uppercase font-mono text-zinc-400 tracking-wider">Tone & Delivery Voice</span>
+                    <p className="text-xs text-zinc-300 bg-surface-300/40 p-2 rounded-lg border border-white/5">
+                      {analysisData.tone_and_delivery}
+                    </p>
+                  </div>
+
+                  {/* Key Discussion Points */}
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] uppercase font-mono text-zinc-400 tracking-wider">Key Debate / Value Points</span>
+                    <ul className="space-y-1 text-xs text-zinc-300">
+                      {analysisData.key_discussion_points?.map((pt: string, idx: number) => (
+                        <li key={idx} className="flex items-start gap-2 bg-surface-300/20 p-1.5 rounded">
+                          <span className="text-brand-400 font-bold">•</span>
+                          <span>{pt}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Transformation Angles */}
+                  <div className="space-y-2 pt-2 border-t border-white/5">
+                    <span className="text-[10px] uppercase font-mono text-purple-300 tracking-wider block">
+                      Choose Your Human Angle
+                    </span>
+                    <div className="space-y-2">
+                      {analysisData.human_angles?.map((angle: any) => {
+                        const isSelected = selectedAngleKey === angle.key;
+                        return (
+                          <div
+                            key={angle.key}
+                            onClick={() => setSelectedAngleKey(angle.key)}
+                            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-purple-950/50 border-purple-500/50 text-white shadow-glow'
+                                : 'bg-surface-300/40 border-white/5 hover:border-white/20 text-zinc-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                                {isSelected ? <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" /> : <div className="w-3.5 h-3.5 rounded-full border border-white/20" />}
+                                {angle.title}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-400 leading-snug">{angle.description}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="block text-zinc-300 font-medium mb-1">LinkedIn Password</label>
-              <input
-                type="password"
-                placeholder={hasSavedCreds ? '••••••••••••••••' : 'Enter password'}
-                value={linkedinPassword}
-                onChange={(e) => setLinkedinPassword(e.target.value)}
-                className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+            {/* RIGHT COLUMN: Human Post Synthesizer & Live Editor (7 cols) */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="p-6 rounded-2xl bg-surface-200/90 border border-white/5 shadow-2xl space-y-5">
+                {/* Editor Header */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-brand-400" />
+                      <span>Synthesized Human Draft</span>
+                    </h4>
+                    <span className="text-[10px] text-zinc-400">
+                      Grounded in your verified stack • 0 robotic AI tropes
+                    </span>
+                  </div>
 
-            <div>
-              <label className="block text-zinc-300 font-medium mb-1">
-                Session Cookie (`li_at`) — Recommended for MFA accounts
-              </label>
-              <input
-                type="text"
-                placeholder="AQEDAR..."
-                value={linkedinCookies}
-                onChange={(e) => setLinkedinCookies(e.target.value)}
-                className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white font-mono text-[11px] focus:outline-none focus:border-indigo-500"
-              />
-            </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSynthesizeHumanPost}
+                      disabled={isSynthesizing || !activeStudioPost}
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold shadow-glow transition-all disabled:opacity-50"
+                    >
+                      {isSynthesizing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                      <span>{isSynthesizing ? 'Synthesizing...' : 'Synthesize Human Post'}</span>
+                    </button>
+                  </div>
+                </div>
 
-            <div className="p-3 rounded-xl bg-surface-400/40 border border-white/5 text-[11px] text-zinc-400 leading-relaxed">
-              <span className="text-emerald-400 font-bold flex items-center gap-1 mb-1">
-                <ShieldCheck className="w-3.5 h-3.5" /> Stealth Human Simulation
-              </span>
-              The Selenium runner mimics real browser fingerprints (macOS, natural mouse scrolls, random 45-110ms keypress delays) to prevent bot detection.
-            </div>
+                {/* Optional Custom Notes Input */}
+                <div>
+                  <label className="text-[10px] font-mono uppercase text-zinc-400 block mb-1">
+                    Specific Experience / Context to Weave In (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={customStudioNotes}
+                    onChange={(e) => setCustomStudioNotes(e.target.value)}
+                    placeholder="e.g. In our FastAPI cluster, we saw redis connection spikes during traffic bursts..."
+                    className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500/50"
+                  />
+                </div>
 
-            <div className="flex items-center justify-end pt-2">
-              <button
-                type="submit"
-                disabled={isSavingCreds}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-glow transition-all disabled:opacity-50"
-              >
-                {isSavingCreds ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-                <span>Save Credentials</span>
-              </button>
+                {/* Synthesized Post Display & Editor */}
+                {synthesizedDraft ? (
+                  <div className="space-y-4">
+                    {/* Live Metric Badges */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        Human Authenticity: 98%
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-300 text-zinc-300 border border-white/5">
+                        {synthesizedDraft.content_text?.length || 0} / 3000 chars
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-300 text-zinc-300 border border-white/5">
+                        {synthesizedDraft.estimated_read_time || '1.5 min read'}
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950/50 text-purple-300 border border-purple-500/30">
+                        Status: {synthesizedDraft.status}
+                      </span>
+                    </div>
+
+                    {/* Post Content Textarea */}
+                    <div className="relative">
+                      <textarea
+                        rows={14}
+                        value={synthesizedDraft.content_text}
+                        onChange={(e) =>
+                          setSynthesizedDraft({
+                            ...synthesizedDraft,
+                            content_text: e.target.value,
+                          })
+                        }
+                        className="w-full bg-surface-300/80 border border-white/10 rounded-xl p-4 text-xs text-zinc-100 font-sans leading-relaxed focus:outline-none focus:border-brand-500/50 resize-y"
+                      />
+                    </div>
+
+                    {/* Post Action Footer */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleCopyToClipboard(synthesizedDraft.content_text)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-400 text-zinc-300 text-xs font-medium border border-white/10 transition-all"
+                        >
+                          {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{isCopied ? 'Copied!' : 'Copy Post'}</span>
+                        </button>
+
+                        <button
+                          onClick={handleSynthesizeHumanPost}
+                          disabled={isSynthesizing}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-400 text-zinc-300 text-xs font-medium border border-white/10 transition-all"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Regenerate Angle</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handlePublishPost}
+                          disabled={isPublishingPost || synthesizedDraft.status === 'PUBLISHED'}
+                          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white text-xs font-bold shadow-glow transition-all disabled:opacity-50"
+                        >
+                          {isPublishingPost ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          <span>{synthesizedDraft.status === 'PUBLISHED' ? 'Published to Profile' : 'Publish to LinkedIn'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-12 text-center text-xs text-zinc-500 border border-dashed border-white/10 rounded-xl space-y-2">
+                    <Wand2 className="w-6 h-6 text-zinc-600 mx-auto" />
+                    <p>Click "Synthesize Human Post" above to craft an authentic post based on your selected angle.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Tracked Inspiration Library */}
+              <div className="p-5 rounded-2xl bg-surface-200/80 border border-white/5 space-y-3">
+                <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                  <span className="text-xs font-bold text-white flex items-center gap-2">
+                    <BookOpen className="w-3.5 h-3.5 text-brand-400" />
+                    Tracked Inspiration Library ({analyzedLibrary.length})
+                  </span>
+                  <span className="text-[10px] text-zinc-500">History of analyzed posts</span>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {analyzedLibrary.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        const found = scrapedPosts.find((p) => p.id === item.id);
+                        if (found) handleOpenInStudio(found);
+                      }}
+                      className="p-2.5 rounded-xl bg-surface-300/40 border border-white/5 hover:border-brand-500/30 cursor-pointer transition-all flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-white">{item.author_name}</span>
+                          <span className="text-[10px] font-mono text-zinc-400 bg-black/20 px-1.5 py-0.2 rounded">
+                            {item.scrape_type}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 line-clamp-1">{item.role_or_project_title || item.author_company}</p>
+                      </div>
+
+                      {item.linked_draft ? (
+                        <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">
+                          Draft Ready
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-mono text-zinc-500">Analyzed</span>
+                      )}
+                    </div>
+                  ))}
+
+                  {analyzedLibrary.length === 0 && (
+                    <div className="p-4 text-center text-xs text-zinc-500">No posts analyzed yet.</div>
+                  )}
+                </div>
+              </div>
             </div>
-          </form>
+          </div>
         </div>
       )}
 
-      {/* Compose Post Modal */}
-      {showCreatePostModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-surface-300 rounded-2xl border border-white/10 shadow-2xl p-6 space-y-4 animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-white/5 pb-3">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-indigo-400" />
-                <h3 className="text-sm font-bold text-white">Create Technical Post</h3>
-              </div>
-              <button onClick={() => setShowCreatePostModal(false)} className="text-zinc-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
+      {/* =========================================================================
+          TAB 3: SELENIUM CONNECTION AUTOMATION BOT
+         ========================================================================= */}
+      {activeTab === 'connections' && (
+        <div className="space-y-6">
+          <div className="p-6 rounded-2xl bg-surface-200/90 border border-white/5 space-y-5">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-emerald-400" />
+                <span>Selenium WebDriver Connection Automation</span>
+              </h3>
+              <p className="text-xs text-zinc-400 mt-1">
+                Automates targeted connection requests with Selenium browser emulation: natural mouse paths, human typing delays (50-120ms/keystroke), page scroll curves, and zero bot footprint.
+              </p>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="flex items-center justify-between">
-                <label className="text-zinc-300 font-medium">Topic Pillar</label>
-                <button
-                  type="button"
-                  onClick={handleGenerateAiPost}
-                  className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+            {/* Configuration Controls */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+              <div>
+                <label className="text-[11px] font-medium text-zinc-300 block mb-1">Target Profile Filter</label>
+                <select
+                  value={targetRoleFilter}
+                  onChange={(e) => setTargetRoleFilter(e.target.value)}
+                  className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
                 >
-                  <Sparkles className="w-3.5 h-3.5" /> AI Draft from Profile
-                </button>
+                  <option value="Engineering Leaders & Recruiters">Engineering Leaders & Recruiters</option>
+                  <option value="Founders & CTOs">Founders & CTOs</option>
+                  <option value="Hiring Managers">Hiring Managers</option>
+                </select>
               </div>
 
-              <select
-                value={newPostPillar}
-                onChange={(e) => setNewPostPillar(e.target.value)}
-                className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
-              >
-                <option value="Technical Deep-Dives">Technical Deep-Dives</option>
-                <option value="Real Engineering Experiences">Real Engineering Experiences</option>
-                <option value="System Design & Architecture">System Design & Architecture</option>
-              </select>
-
               <div>
-                <label className="block text-zinc-300 font-medium mb-1">Post Title</label>
+                <label className="text-[11px] font-medium text-zinc-300 block mb-1">Batch Batch Size (Daily Safe Cap)</label>
                 <input
-                  type="text"
-                  placeholder="e.g. Diagnosing Distributed Lock Contention in High-Throughput Pipelines"
-                  value={newPostTitle}
-                  onChange={(e) => setNewPostTitle(e.target.value)}
-                  className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={connectionBatchCount}
+                  onChange={(e) => setConnectionBatchCount(parseInt(e.target.value) || 1)}
+                  className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-zinc-300 font-medium mb-1">Content</label>
-                <textarea
-                  rows={6}
-                  placeholder="Write post content..."
-                  value={newPostContent}
-                  onChange={(e) => setNewPostContent(e.target.value)}
-                  className="w-full p-2.5 rounded-lg bg-surface-400 border border-white/10 text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-end">
                 <button
-                  type="button"
-                  onClick={() => setShowCreatePostModal(false)}
-                  className="px-4 py-2 rounded-lg text-zinc-400 hover:text-white"
+                  onClick={() => handleRunConnectionAutomation()}
+                  disabled={isAutomatingConnections}
+                  className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-glow transition-all flex items-center justify-center gap-2"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreatePostModal(false);
-                    setNotification('Post drafted and added to content pipeline.');
-                  }}
-                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-glow"
-                >
-                  Save Draft
+                  {isAutomatingConnections ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  <span>{isAutomatingConnections ? 'Running Selenium Bot...' : 'Launch Connection Bot'}</span>
                 </button>
               </div>
             </div>
+
+            {/* Custom Note Template */}
+            <div>
+              <label className="text-[11px] font-medium text-zinc-300 block mb-1">Custom Note Template (Optional)</label>
+              <input
+                type="text"
+                value={customNoteTemplate}
+                onChange={(e) => setCustomNoteTemplate(e.target.value)}
+                placeholder="Hi {name}, saw your team's work at {company}. Given my background in distributed systems, would love to connect!"
+                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            {/* Live Terminal Output */}
+            {seleniumLogs.length > 0 && (
+              <div className="rounded-xl bg-black/80 border border-white/10 p-4 font-mono text-xs text-zinc-300 space-y-2">
+                <div className="flex items-center justify-between border-b border-white/10 pb-2 text-zinc-500 text-[11px]">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Selenium Live Automation Stream
+                  </span>
+                  <span>stealth_chromedriver_v128</span>
+                </div>
+                <div className="space-y-1.5 max-h-56 overflow-y-auto pt-2">
+                  {seleniumLogs.map((log, index) => (
+                    <div key={index} className="flex items-start gap-2">
+                      <span className="text-zinc-500 select-none">[{log.timestamp}]</span>
+                      <span className="text-cyan-400 select-none">[{log.action || log.engine}]</span>
+                      <span className={log.status === 'SUCCESS' ? 'text-emerald-300' : 'text-zinc-200'}>{log.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB 4: CREDENTIALS VAULT
+         ========================================================================= */}
+      {activeTab === 'credentials' && (
+        <div className="max-w-xl mx-auto p-6 rounded-2xl bg-surface-200/90 border border-white/5 space-y-5 shadow-2xl">
+          <div className="border-b border-white/5 pb-4">
+            <h3 className="text-base font-bold text-white flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-brand-400" />
+              <span>LinkedIn Automation Credentials Vault</span>
+            </h3>
+            <p className="text-xs text-zinc-400 mt-1">
+              Credentials are used strictly by the local Selenium automation bot. All passwords and cookies are stored with encrypted protection.
+            </p>
+          </div>
+
+          <form onSubmit={handleSaveCredentials} className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-zinc-300 block mb-1">LinkedIn Username / Email</label>
+              <input
+                required
+                type="text"
+                value={linkedinUsername}
+                onChange={(e) => setLinkedinUsername(e.target.value)}
+                placeholder="your.email@example.com"
+                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-zinc-300 block mb-1">LinkedIn Password</label>
+              <input
+                required
+                type="password"
+                value={linkedinPassword}
+                onChange={(e) => setLinkedinPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-zinc-300 block mb-1">Session Cookie (li_at) (Optional for 2FA bypass)</label>
+              <input
+                type="text"
+                value={linkedinCookies}
+                onChange={(e) => setLinkedinCookies(e.target.value)}
+                placeholder="AQEDAR05189XYZ..."
+                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSavingCreds}
+              className="w-full py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-xs font-semibold text-white shadow-glow transition-all flex items-center justify-center gap-2"
+            >
+              {isSavingCreds ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              <span>{isSavingCreds ? 'Saving Credentials...' : 'Save to Vault'}</span>
+            </button>
+          </form>
         </div>
       )}
     </div>

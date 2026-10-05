@@ -24,15 +24,21 @@
 ---
 
 ### 2. LinkedIn Scraper & Automation Bot
-- **LinkedIn Opportunity & Post Scraper**:
-  - Extracts active roles, recruiter postings, and community opportunities directly from LinkedIn feeds.
+- **Multi-Type LinkedIn Scraper**:
+  - **Hiring in Posts**: Extracts founders and engineering managers actively hiring directly in posts (roles, compensation, direct apply instructions).
+  - **Freelance & Contracts**: Scrapes short-term sprints, contract architecture needs, hourly rates ($/hr), and fixed budgets.
+  - **Project Collaboration**: Discovers open-source maintainers and founders looking for co-builders, collaborators, and technical partners.
+  - **Interesting Tech Posts**: Extracts high-engagement technical breakdowns, systems design debates, and architecture takeaways.
+  - **Full Connection / Author Metadata**: Extracts author name, profile URL, connection degree (1st/2nd/3rd), company, headline, post text, and engagement metrics (likes, comments, reposts).
+- **LinkedIn Post Studio — Human Voice Synthesizer**:
+  - **Post Dynamics Analyzer**: Analyzes scraped posts from previous steps to decode the **hook technique**, **tone & voice**, and **core debate points**.
+  - **Human Post Synthesizer ("Make it humanly")**: Generates authentic, non-generic related posts using real production lessons, nuanced counter-perspectives, actionable checklists, or proof-of-work pitches. Eliminates robotic AI cliches, enforces organic 1-2 sentence spacing, and ends with peer-level debate questions.
+  - **Tracked Inspiration Library**: Tracks all analyzed posts, linked drafts, and publishing statuses.
 - **Selenium-Style Connection Automation**:
   - Automates outreach and connection requests with human-paced execution.
   - Staggered scrolling, organic delays between actions (800ms–2200ms), and custom personalized invitation notes.
-- **Post Studio & Publisher**:
-  - Drafts and schedules high-engagement thought-leadership posts highlighting technical architecture, open-source projects, and career milestones.
 - **Encrypted Credentials Vault**:
-  - Securely stores LinkedIn credentials, session cookies, and 2FA tokens.
+  - Securely stores LinkedIn credentials, session cookies (`li_at`), and 2FA tokens.
 
 ---
 

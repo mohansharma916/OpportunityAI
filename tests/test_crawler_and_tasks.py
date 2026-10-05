@@ -30,7 +30,7 @@ async def test_crawler_execution_and_application_lifecycle():
         prof_res = await client.put(
             "/api/profile",
             json={
-                "full_name": "Alex Mercer",
+                "full_name": "David Miller",
                 "headline": "Lead Systems Architect & Python Engineer",
                 "location": "Berlin, Germany",
                 "salary_currency": "EUR",

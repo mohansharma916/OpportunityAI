@@ -479,6 +479,34 @@ class LinkedInContentPostModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class LinkedInScrapedPostModel(Base):
+    __tablename__ = "linkedin_scraped_posts"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    scrape_type = Column(String(50), nullable=False)  # HIRING_POST, FREELANCE_GIG, PROJECT_COLLAB, INTERESTING_POST
+    author_name = Column(String(255), nullable=False)
+    author_role = Column(String(255), nullable=True)
+    author_company = Column(String(255), nullable=True)
+    author_headline = Column(Text, nullable=True)
+    author_avatar_url = Column(String(500), nullable=True)
+    author_profile_url = Column(String(500), nullable=True)
+    connection_degree = Column(String(20), default="2nd")
+    post_url = Column(String(500), nullable=True)
+    post_text = Column(Text, nullable=False)
+    role_or_project_title = Column(String(255), nullable=True)
+    compensation_or_budget = Column(String(255), nullable=True)
+    skills_required = Column(JSON, default=list)
+    how_to_apply = Column(String(255), nullable=True)
+    likes_count = Column(Integer, default=0)
+    comments_count = Column(Integer, default=0)
+    reposts_count = Column(Integer, default=0)
+    posted_at_str = Column(String(50), default="Today")
+    is_analyzed = Column(Boolean, default=False)
+    analysis_summary = Column(JSON, default=dict)
+    generated_post_id = Column(String(36), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class LinkedInRelationshipModel(Base):
     __tablename__ = "linkedin_relationships"
 

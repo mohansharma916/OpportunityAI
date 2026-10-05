@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from apps.api.models import (
+    UserModel,
     CandidateProfileModel,
     CandidateSkillModel,
     KnowledgeItemModel,
@@ -28,7 +29,27 @@ from packages.domain.models import (
 
 class ProfileService:
     @staticmethod
-    async def get_or_create_profile(db: AsyncSession, seed_if_empty: bool = False) -> Optional[CandidateProfileModel]:
+    async def get_or_create_profile(
+        db: AsyncSession, seed_if_empty: bool = False, user_id: Optional[str] = None
+    ) -> Optional[CandidateProfileModel]:
+        # 1. If user_id provided, look for that specific user's profile
+        if user_id:
+            stmt = (
+                select(CandidateProfileModel)
+                .options(
+                    selectinload(CandidateProfileModel.skills),
+                    selectinload(CandidateProfileModel.knowledge_items),
+                    selectinload(CandidateProfileModel.work_experiences),
+                )
+                .where(CandidateProfileModel.user_id == user_id)
+                .limit(1)
+            )
+            res = await db.execute(stmt)
+            profile = res.scalar_one_or_none()
+            if profile:
+                return profile
+
+        # 2. Try to find the latest candidate profile
         stmt = (
             select(CandidateProfileModel)
             .options(
@@ -36,21 +57,53 @@ class ProfileService:
                 selectinload(CandidateProfileModel.knowledge_items),
                 selectinload(CandidateProfileModel.work_experiences),
             )
-            .order_by(CandidateProfileModel.created_at.desc())
+            .order_by(CandidateProfileModel.updated_at.desc(), CandidateProfileModel.created_at.desc())
             .limit(1)
         )
         res = await db.execute(stmt)
         profile = res.scalar_one_or_none()
 
+        # If existing profile was populated with "Alex Morgan", update it to real user if available
+        if profile and profile.full_name and profile.full_name.strip().lower() in ["alex", "alex morgan"]:
+            u_stmt = select(UserModel).where(~UserModel.email.ilike("%alex.morgan%")).order_by(UserModel.created_at.desc()).limit(1)
+            u_res = await db.execute(u_stmt)
+            real_u = u_res.scalar_one_or_none()
+            if real_u and real_u.full_name:
+                profile.full_name = real_u.full_name
+                profile.email = real_u.email
+                if not profile.user_id:
+                    profile.user_id = real_u.id
+                await db.commit()
+                await db.refresh(profile)
+
         if profile or not seed_if_empty:
             return profile
+
+        # 3. Determine real name and email from UserModel if available
+        seed_name = "Lead Engineer"
+        seed_email = "engineer@opportunityos.internal"
+        target_uid = user_id
+        if target_uid:
+            u_res = await db.execute(select(UserModel).where(UserModel.id == target_uid))
+            u_match = u_res.scalar_one_or_none()
+            if u_match:
+                seed_name = u_match.full_name or seed_name
+                seed_email = u_match.email or seed_email
+        else:
+            u_res = await db.execute(select(UserModel).where(~UserModel.email.ilike("%alex.morgan%")).order_by(UserModel.created_at.desc()).limit(1))
+            u_latest = u_res.scalar_one_or_none()
+            if u_latest:
+                seed_name = u_latest.full_name or seed_name
+                seed_email = u_latest.email or seed_email
+                target_uid = u_latest.id
 
         # Seed initial rich profile
         profile = CandidateProfileModel(
             id=str(uuid.uuid4()),
-            full_name="Alex Morgan",
+            user_id=target_uid,
+            full_name=seed_name,
             headline="Staff Full Stack & Distributed Systems Architect",
-            email="alex.morgan.dev@gmail.com",
+            email=seed_email,
             location="San Francisco, CA / Remote",
             country="United States",
             timezone="America/Los_Angeles",
@@ -211,8 +264,8 @@ class ProfileService:
         return await ProfileService.get_or_create_profile(db)
 
     @staticmethod
-    async def get_domain_profile(db: AsyncSession) -> Optional[CandidateProfile]:
-        model = await ProfileService.get_or_create_profile(db)
+    async def get_domain_profile(db: AsyncSession, user_id: Optional[str] = None) -> Optional[CandidateProfile]:
+        model = await ProfileService.get_or_create_profile(db, seed_if_empty=True, user_id=user_id)
         if not model:
             return None
         skills = [
@@ -379,8 +432,10 @@ class ProfileService:
         return True
 
     @staticmethod
-    async def update_profile(db: AsyncSession, data: Dict[str, Any]) -> Optional[CandidateProfile]:
-        model = await ProfileService.get_or_create_profile(db)
+    async def update_profile(
+        db: AsyncSession, data: Dict[str, Any], user_id: Optional[str] = None
+    ) -> Optional[CandidateProfile]:
+        model = await ProfileService.get_or_create_profile(db, seed_if_empty=True, user_id=user_id)
         if not model:
             return None
 
@@ -394,13 +449,21 @@ class ProfileService:
             if field in data and data[field] is not None:
                 setattr(model, field, data[field])
 
+        # Keep UserModel full_name in sync if profile is linked to a user
+        if model.user_id:
+            u_stmt = select(UserModel).where(UserModel.id == model.user_id)
+            u_res = await db.execute(u_stmt)
+            user_rec = u_res.scalar_one_or_none()
+            if user_rec and "full_name" in data and data["full_name"]:
+                user_rec.full_name = data["full_name"].strip()
+
         # Update JSON list fields
         for json_field in ["countries_willing_to_work", "target_roles", "preferred_currencies", "authorized_countries"]:
             if json_field in data and data[json_field] is not None:
                 setattr(model, json_field, data[json_field])
 
         await db.commit()
-        return await ProfileService.get_domain_profile(db)
+        return await ProfileService.get_domain_profile(db, user_id=user_id)
 
     @staticmethod
     async def add_skill(

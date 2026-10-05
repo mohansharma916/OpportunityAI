@@ -29,6 +29,7 @@ import { LinkedInGrowthAgentView } from '@/components/LinkedInGrowthAgentView';
 import { CRMView } from '@/components/CRMView';
 import { ProfileView } from '@/components/ProfileView';
 import { AuthScreen } from '@/components/AuthScreen';
+import { DailyBriefingCard } from '@/components/DailyBriefingCard';
 
 export default function OpportunityOSApp() {
   const [currentTab, setCurrentTab] = useState<'scraper' | 'linkedin' | 'crm'>('scraper');
@@ -37,6 +38,9 @@ export default function OpportunityOSApp() {
   const [profile, setProfile] = useState<any>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [verifiedAnswers, setVerifiedAnswers] = useState<any[]>([]);
+  const [briefing, setBriefing] = useState<any>(null);
+  const [showBriefingModal, setShowBriefingModal] = useState(false);
+  const [loadingBriefing, setLoadingBriefing] = useState(false);
 
   // Tab Header Details
   const tabInfo: Record<string, { title: string; subtitle: string; icon: any }> = {
@@ -117,11 +121,12 @@ export default function OpportunityOSApp() {
     };
   }, []);
 
-  // Load Profile Data
+  // Load Profile & Briefing Data
   const loadProfileData = async () => {
     try {
+      const profileUrl = user?.id ? `/api/profile?user_id=${user.id}` : '/api/profile';
       const [profData, answersData] = await Promise.all([
-        fetchApi<any>('/api/profile'),
+        fetchApi<any>(profileUrl),
         fetchApi<any[]>('/api/profile/answers'),
       ]);
       if (profData) setProfile(profData);
@@ -131,9 +136,25 @@ export default function OpportunityOSApp() {
     }
   };
 
+  const loadBriefingData = async () => {
+    try {
+      setLoadingBriefing(true);
+      const briefingUrl = user?.id
+        ? `/api/briefing?user_id=${user.id}&user_name=${encodeURIComponent(user.full_name || '')}`
+        : '/api/briefing';
+      const data = await fetchApi<any>(briefingUrl);
+      if (data) setBriefing(data);
+    } catch (err) {
+      console.error('Failed to load daily briefing:', err);
+    } finally {
+      setLoadingBriefing(false);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       loadProfileData();
+      loadBriefingData();
     }
   }, [user]);
 
@@ -198,6 +219,17 @@ export default function OpportunityOSApp() {
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => {
+                setShowBriefingModal(true);
+                loadBriefingData();
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/30 text-xs font-medium text-brand-300 transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-brand-400" />
+              <span>Daily AI Briefing</span>
+            </button>
+
+            <button
               onClick={() => setShowProfileModal(true)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-200 border border-white/10 text-xs font-medium text-zinc-200 transition-all"
             >
@@ -231,6 +263,35 @@ export default function OpportunityOSApp() {
           )}
         </div>
       </main>
+
+      {/* Daily AI Briefing Modal */}
+      {showBriefingModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl max-h-[90vh] bg-surface-300 rounded-2xl border border-white/10 shadow-2xl p-6 overflow-y-auto space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-white/5 pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-brand-400" />
+                <div>
+                  <h3 className="text-sm font-bold text-white">Daily AI Briefing</h3>
+                  <p className="text-xs text-zinc-400">
+                    Executive intelligence briefing dynamically tailored to your actual background and active pipeline.
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setShowBriefingModal(false)} className="text-zinc-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <DailyBriefingCard
+              briefing={briefing}
+              onRefreshDiscovery={loadBriefingData}
+              onSelectOpportunity={() => setShowBriefingModal(false)}
+              loadingDiscovery={loadingBriefing}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Identity, Skills & Credentials Vault Modal */}
       {showProfileModal && (

@@ -285,6 +285,11 @@ class LinkedInCredentialsRequest(BaseModel):
     cookies: Optional[str] = None
 
 
+class SynthesizeHumanPostRequest(BaseModel):
+    angle_key: str = "PERSONAL_PRODUCTION_EXPERIENCE"
+    custom_notes: Optional[str] = None
+
+
 class GenerateOutreachRequest(BaseModel):
     opportunity_id: Optional[str] = None
     tone: Optional[str] = "TECHNICAL"
@@ -397,15 +402,22 @@ async def complete_onboarding(req: CompleteOnboardingRequest, db: AsyncSession =
 
 
 @app.get("/api/profile")
-async def get_profile(db: AsyncSession = Depends(get_db)):
-    profile = await ProfileService.get_domain_profile(db)
+async def get_profile(
+    user_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await ProfileService.get_domain_profile(db, user_id=user_id)
     return profile
 
 
 @app.put("/api/profile")
-async def update_profile(req: UpdateProfileRequest, db: AsyncSession = Depends(get_db)):
+async def update_profile(
+    req: UpdateProfileRequest,
+    user_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
     try:
-        updated = await ProfileService.update_profile(db, req.dict(exclude_unset=True))
+        updated = await ProfileService.update_profile(db, req.dict(exclude_unset=True), user_id=user_id)
         return updated
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1279,6 +1291,55 @@ async def publish_linkedin_post_endpoint(
     try:
         res = await LinkedInGrowthService.publish_content_post(db, post_id)
         return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/scraped-posts")
+async def get_linkedin_scraped_posts(
+    scrape_type: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await LinkedInGrowthService.get_or_seed_scraped_posts(db, scrape_type)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/posts/{post_id}/analyze")
+async def analyze_linkedin_scraped_post_endpoint(
+    post_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await LinkedInGrowthService.analyze_scraped_post(db, post_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/linkedin/posts/{post_id}/synthesize-human-post")
+async def synthesize_human_post_endpoint(
+    post_id: str,
+    req: SynthesizeHumanPostRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await LinkedInGrowthService.synthesize_human_post(
+            db=db,
+            post_id=post_id,
+            angle_key=req.angle_key,
+            custom_notes=req.custom_notes,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/linkedin/post-studio/library")
+async def get_analyzed_posts_library_endpoint(
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await LinkedInGrowthService.get_analyzed_posts_library(db)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
