@@ -38,23 +38,6 @@ async def test_linkedin_growth_agent_full_lifecycle():
         assert "daily_briefing" in dash
         assert "priority_1" in dash["daily_briefing"]
 
-        # 2. Profile Optimizer Analysis & Scoring
-        opt_res = await client.get("/api/linkedin/profile-optimizer")
-        assert opt_res.status_code == 200
-        opt_data = opt_res.json()
-        assert "headline_score" in opt_data
-        assert "recruiter_discoverability_score" in opt_data
-        assert len(opt_data.get("recommendations", [])) >= 2
-        suggested_headline = opt_data["headline_suggested"]
-
-        # Apply user-approved recommendation
-        apply_res = await client.post(
-            "/api/linkedin/profile-optimizer/apply",
-            json={"field": "headline", "value": suggested_headline},
-        )
-        assert apply_res.status_code == 200
-        assert apply_res.json()["applied"] is True
-
         # 3. Personal Brand Strategy & Topic Pillars
         brand_res = await client.get("/api/linkedin/brand-strategy")
         assert brand_res.status_code == 200

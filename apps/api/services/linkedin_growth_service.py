@@ -171,77 +171,6 @@ class LinkedInGrowthService:
         return intel
 
     # -------------------------------------------------------------------
-    # 2. Profile Optimizer
-    # -------------------------------------------------------------------
-    @staticmethod
-    async def analyze_and_optimize_profile(db: AsyncSession) -> Dict[str, Any]:
-        """Runs the profile optimization engine against candidate data."""
-        brain = await LinkedInGrowthService.get_professional_brain(db)
-        intel = await LinkedInGrowthService.get_or_create_intelligence(db, brain["profile_id"])
-
-        # Dynamically compute scores based on profile completeness and verified items
-        skills_count = len(brain["skills"])
-        exp_count = len(brain["experiences"])
-
-        headline_score = 75.0 if len(brain["headline"]) > 20 else 55.0
-        skills_score = min(95.0, max(50.0, skills_count * 12.0))
-        experience_score = min(95.0, max(60.0, exp_count * 25.0))
-        projects_score = 88.0
-        about_score = 72.0
-        recruiter_score = round((headline_score * 0.35 + skills_score * 0.35 + experience_score * 0.30), 1)
-        overall_score = round(
-            (headline_score + about_score + experience_score + skills_score + projects_score + recruiter_score) / 6.0,
-            1,
-        )
-
-        intel.overall_score = overall_score
-        intel.headline_score = headline_score
-        intel.skills_score = skills_score
-        intel.experience_score = experience_score
-        intel.recruiter_discoverability_score = recruiter_score
-        await db.commit()
-
-        return {
-            "overall_score": overall_score,
-            "headline_score": headline_score,
-            "about_score": about_score,
-            "experience_score": experience_score,
-            "skills_score": skills_score,
-            "projects_score": projects_score,
-            "recruiter_discoverability_score": recruiter_score,
-            "headline_current": intel.headline_current or brain["headline"],
-            "headline_suggested": intel.headline_suggested,
-            "about_current": intel.about_current,
-            "about_suggested": intel.about_suggested,
-            "recommendations": intel.recommendations,
-            "target_roles": brain["target_roles"],
-            "target_audience": intel.target_audience,
-        }
-
-    @staticmethod
-    async def apply_profile_recommendation(
-        db: AsyncSession, field: str, suggested_value: str
-    ) -> Dict[str, Any]:
-        """Applies a user-approved profile optimization with explicit permission."""
-        profile = await ProfileService.get_or_create_profile(db)
-        if field == "headline":
-            profile.headline = suggested_value.strip()
-        elif field == "about":
-            # Store in candidate profile if supported or metadata
-            pass
-
-        await db.commit()
-        await ActivityService.record_event(
-            db=db,
-            entity_type="LINKEDIN_GROWTH",
-            entity_id=profile.id,
-            action="PROFILE_OPTIMIZATION_APPLIED",
-            reason=f"User approved and applied suggested {field}.",
-            output_payload={"field": field, "new_value": suggested_value},
-        )
-        return {"applied": True, "field": field, "value": suggested_value}
-
-    # -------------------------------------------------------------------
     # 3. Content Engine & Personal Brand Strategy
     # -------------------------------------------------------------------
     @staticmethod
@@ -980,11 +909,16 @@ class LinkedInGrowthService:
             }
 
         elif "optimize" in cmd or "profile" in cmd or "headline" in cmd:
-            opt = await LinkedInGrowthService.analyze_and_optimize_profile(db)
+            from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerService
+            state = await LinkedInOptimizerService.state(db)
+            audit = state["audit"]
             return {
                 "intent": "PROFILE_OPTIMIZER",
-                "message": f"Profile evaluated. Current score: {opt['overall_score']}/100. Generated 3 actionable improvements.",
-                "data": opt,
+                "message": (
+                    f"Profile score: {audit['overall_score']}/100. {len(state['drafts'])} drafts to review."
+                    if audit else "No profile audit yet. Run the live profile audit or import your LinkedIn export."
+                ),
+                "data": state,
             }
 
         elif "strategy" in cmd or "calendar" in cmd or "plan" in cmd:

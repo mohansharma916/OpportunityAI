@@ -5,6 +5,9 @@ OpportunityOS — Worker CLI (runs on the candidate's own machine)
   python -m apps.worker.cli fill URL --company X --role Y   # fill one form, dry run (no submit)
   python -m apps.worker.cli fill --tracker-id ID --submit   # submit after the candidate has approved it
   python -m apps.worker.cli queue --limit 5            # dry-run every QUEUED tracker row, human-paced
+  python -m apps.worker.cli linkedin-audit             # read your LinkedIn profile, score it, draft fixes
+  python -m apps.worker.cli linkedin-apply             # dry-run approved headline/About edits
+  python -m apps.worker.cli linkedin-apply --save      # save approved headline/About edits
 """
 
 import argparse
@@ -14,8 +17,10 @@ from typing import Any, Dict, List, Optional
 
 from apps.api.db import AsyncSessionLocal, init_db
 from apps.api.services.intake_service import DEFAULT_DAILY_CAP, IntakeService
+from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerService
 from apps.api.services.tracker_service import DuplicateApplicationError, TrackerService
 from apps.worker.automation import AutomationResult, BrowserSession, FormAutomationWorker, HumanPacer, PlaywrightDriver
+from apps.worker.linkedin import NeedsCandidate, apply_edit, read_profile
 
 LOGIN_URLS = [
     "https://www.linkedin.com/login",
@@ -132,6 +137,57 @@ async def cmd_queue(args: argparse.Namespace) -> int:
     return 0
 
 
+async def cmd_linkedin_audit(args: argparse.Namespace) -> int:
+    await init_db()
+    async with BrowserSession() as session:
+        page = await session.new_page()
+        try:
+            snapshot = await read_profile(page)
+        except NeedsCandidate as exc:
+            print(exc, file=sys.stderr)
+            return 2
+    async with AsyncSessionLocal() as db:
+        await LinkedInOptimizerService.save_snapshot(db, snapshot)
+        state = await LinkedInOptimizerService.analyze(db, use_claude=False if args.no_claude else None)
+    audit = state["audit"]
+    print(f"Profile score: {audit['overall_score']}/100 (keywords from {audit['keywords_source']})")
+    for s in audit["sections"]:
+        score = "  ?" if s["score"] is None else f"{s['score']:>3}"
+        print(f"  {score}  {s['label']}" + (f" — {s['findings'][0]}" if s["findings"] else ""))
+    print(f"{len(state['drafts'])} drafts ready to review in the LinkedIn tab.")
+    return 0
+
+
+async def cmd_linkedin_apply(args: argparse.Namespace) -> int:
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        drafts = [d for d in await LinkedInOptimizerService.list_drafts(db, status="APPROVED") if d.apply_mode == "AGENT"]
+        drafts = drafts[: args.limit]
+        if not drafts:
+            print("No approved headline/About drafts. Approve them in the LinkedIn tab first.")
+            return 0
+        pacer = HumanPacer(min_gap_s=args.min_gap, max_gap_s=args.max_gap)
+        async with BrowserSession() as session:
+            page = await session.new_page()
+            for i, d in enumerate(drafts):
+                try:
+                    shots = await apply_edit(page, d.section, d.proposed_value, d.current_value, save=args.save, pacer=pacer)
+                except NeedsCandidate as exc:
+                    await LinkedInOptimizerService.record_apply(db, d.id, ok=False, error=str(exc))
+                    print(f"[PAUSED] {d.title}: {exc}")
+                    continue
+                if args.save:
+                    await LinkedInOptimizerService.record_apply(db, d.id, ok=True, evidence=shots)
+                    print(f"[APPLIED] {d.title}")
+                else:
+                    d.evidence = list(d.evidence or []) + shots
+                    await db.commit()
+                    print(f"[DRY RUN] {d.title}: filled and discarded. Screenshot: {shots[-1]}")
+                if i < len(drafts) - 1:
+                    await pacer.between_applications()
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="opportunity-os-worker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -156,6 +212,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_queue.add_argument("--min-gap", type=float, default=30)
     p_queue.add_argument("--max-gap", type=float, default=120)
     p_queue.set_defaults(func=cmd_queue)
+
+    p_li_audit = sub.add_parser("linkedin-audit", help="Read your LinkedIn profile, score it and draft fixes")
+    p_li_audit.add_argument("--no-claude", action="store_true", help="Use template drafts only")
+    p_li_audit.set_defaults(func=cmd_linkedin_audit)
+
+    p_li_apply = sub.add_parser("linkedin-apply", help="Apply approved headline/About drafts")
+    p_li_apply.add_argument("--save", action="store_true", help="Click Save (default: fill, screenshot, discard)")
+    p_li_apply.add_argument("--limit", type=int, default=2)
+    p_li_apply.add_argument("--min-gap", type=float, default=30)
+    p_li_apply.add_argument("--max-gap", type=float, default=90)
+    p_li_apply.set_defaults(func=cmd_linkedin_apply)
 
     args = parser.parse_args(argv)
     return asyncio.run(args.func(args))

@@ -327,6 +327,41 @@ class TrackedApplicationModel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class LinkedInProfileSnapshotModel(Base):
+    """A reading of the candidate's LinkedIn profile, plus the audit run against it."""
+    __tablename__ = "linkedin_profile_snapshots"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    source = Column(String(20), nullable=False)  # SCREEN, EXPORT
+    data = Column(JSON, default=dict)            # ProfileSnapshot
+    audit = Column(JSON, nullable=True)          # AuditReport
+    captured_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class LinkedInProfileDraftModel(Base):
+    """A proposed profile change awaiting the candidate's decision."""
+    __tablename__ = "linkedin_profile_drafts"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    snapshot_id = Column(String(36), ForeignKey("linkedin_profile_snapshots.id", ondelete="SET NULL"), nullable=True)
+    section = Column(String(50), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    current_value = Column(Text, nullable=True)
+    proposed_value = Column(Text, nullable=False)
+    alternatives = Column(JSON, default=list)
+    rationale = Column(Text, nullable=True)
+    instructions = Column(Text, nullable=True)
+    apply_mode = Column(String(20), default="MANUAL")  # AGENT, MANUAL
+    char_limit = Column(Integer, nullable=True)
+    generated_by = Column(String(20), default="TEMPLATE")  # TEMPLATE, CLAUDE
+    status = Column(String(20), default="PENDING", index=True)  # PENDING, APPROVED, REJECTED, APPLIED, FAILED, SUPERSEDED
+    last_error = Column(Text, nullable=True)
+    evidence = Column(JSON, default=list)
+    applied_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # -------------------------------------------------------------------
 # Scraping Platform Models
 # -------------------------------------------------------------------

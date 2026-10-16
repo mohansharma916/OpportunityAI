@@ -19,9 +19,16 @@
 - **Application tracker:** one row per application (ATS form, Easy Apply, LinkedIn post, email), de-duplicated by company + role, with status, evidence, and a follow-up date 7 days after submit.
 
 ### 2. LinkedIn
-- Hiring posts can be added to the tracker ("Track in Applications").
-- Post studio for drafting posts (approved by you before publishing).
-- Profile optimization is next on the roadmap. The bulk connection bot and the credentials vault have been removed.
+- **Profile optimizer:** reads your own profile (live, or from LinkedIn's data export), scores 12 sections
+  (headline, About, experience, skills, photo, Open to Work, featured, recommendations, custom URL, banner,
+  education, location) and lists what to fix. Recruiter keywords come from the jobs you've discovered.
+- **Grounded drafts:** every draft is built only from your intake and work history. With `ANTHROPIC_API_KEY` set,
+  Claude (`claude-opus-5-5`) polishes the headline, About and experience bullets; any number not in your facts
+  is rejected and the template text is kept.
+- **You approve, then it's applied:** the worker types approved headline and About changes into LinkedIn's own
+  edit dialogs (dry run by default). Everything else is copy-ready text with where to paste it.
+- Hiring posts can be added to the tracker ("Track in Applications"); post studio for drafting posts.
+- The bulk connection bot and the credentials vault have been removed.
 
 ---
 
@@ -65,6 +72,14 @@ PYTHONPATH=. .venv/bin/python -m apps.worker.cli queue --limit 5
 # After reviewing a row marked "Awaiting approval", submit it
 PYTHONPATH=. .venv/bin/python -m apps.worker.cli fill --tracker-id <id> --submit
 ```
+LinkedIn profile:
+```bash
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-audit        # read, score, draft
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-apply        # dry run approved headline/About
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-apply --save # save them
+```
+Optional: `uv pip install --python .venv/bin/python anthropic` and set `ANTHROPIC_API_KEY` for Claude-polished drafts.
+
 The browser profile and screenshots live in `~/.opportunity-os/` (override with `OPPORTUNITY_OS_HOME`).
 
 #### 3. Launch Web Dashboard (Next.js 14)
@@ -94,6 +109,10 @@ npm run dev
 | `POST` | `/api/platforms/{id}/scrape`, `/api/platforms/scrape-all` | Run discovery |
 | `GET` | `/api/opportunities/grouped-by-date` | Opportunities by Today, Yesterday, This Week, Earlier |
 | `POST` | `/api/opportunities/{id}/human-apply` | Queue the opportunity in the tracker for the worker |
+| `GET` | `/api/linkedin/optimizer` | Latest profile snapshot, audit and drafts |
+| `POST` | `/api/linkedin/optimizer/import-export` | Import LinkedIn's data export, then audit |
+| `POST` | `/api/linkedin/optimizer/analyze` | Re-run the audit and drafts (`?use_claude=false` for templates only) |
+| `POST` | `/api/linkedin/optimizer/drafts/{id}` | `APPROVE` (optionally edited), `REJECT`, `REOPEN`, `MARK_APPLIED` |
 | `GET` | `/api/linkedin/scraped-posts` | Posts, including hiring posts |
 | `POST` | `/api/linkedin/posts/{id}/analyze`, `/synthesize-human-post`, `/publish` | Post studio |
 
@@ -121,18 +140,23 @@ opportunity-os/
 │   │       ├── intake_service.py         # Answer bank intake + completeness
 │   │       ├── tracker_service.py        # Application tracker, de-dup, follow-ups
 │   │       ├── platform_service.py       # Platform registry & discovery
+│   │       ├── linkedin_optimizer_service.py # Profile snapshot, audit, drafts, approvals
 │   │       ├── opportunity_service.py    # Opportunities & date grouping
 │   │       └── linkedin_growth_service.py
 │   ├── worker/
 │   │   ├── automation.py                 # Playwright worker, guardrails, human pacing
-│   │   └── cli.py                        # login / fill / queue commands
+│   │   ├── linkedin.py                   # LinkedIn profile reader & editor
+│   │   └── cli.py                        # login / fill / queue / linkedin-audit / linkedin-apply
 │   └── web/src/components/
 │       ├── IntakeView.tsx                # Candidate intake form
 │       ├── JobScraperView.tsx            # Remote jobs + apply queue
 │       ├── ApplicationsTrackerView.tsx   # Application tracker
-│       └── LinkedInGrowthAgentView.tsx   # Hiring posts + post studio
+│       ├── LinkedInOptimizerView.tsx     # Profile audit + draft approvals
+│       └── LinkedInGrowthAgentView.tsx   # Optimizer, hiring posts, post studio
 ├── packages/
 │   ├── answer_bank/                      # Form field -> approved answer matching
+│   ├── linkedin_optimizer/               # Export parser, audit, grounded drafts
+│   ├── ai/claude_drafter.py              # Claude polish with grounding check
 │   ├── matching/                         # Fit scoring
 │   └── connectors/                       # Job sources
 └── tests/

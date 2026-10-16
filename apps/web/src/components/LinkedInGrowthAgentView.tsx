@@ -40,8 +40,10 @@ import {
   UserPlus,
   Layers,
   TrendingUp,
+  Gauge,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
+import { LinkedInOptimizerView } from '@/components/LinkedInOptimizerView';
 
 interface LinkedInGrowthAgentViewProps {
   onRefreshAllData?: () => void;
@@ -49,7 +51,7 @@ interface LinkedInGrowthAgentViewProps {
 }
 
 export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInGrowthAgentViewProps) {
-  const [activeTab, setActiveTab] = useState<'scraped_posts' | 'post_studio'>('scraped_posts');
+  const [activeTab, setActiveTab] = useState<'optimizer' | 'scraped_posts' | 'post_studio'>('optimizer');
   const [loading, setLoading] = useState(false);
 
   // 1. Multi-Type Scraped Posts State
@@ -261,6 +263,18 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
       <div className="flex items-center justify-between border-b border-white/5 pb-3">
         <div className="flex items-center gap-2 bg-surface-200/80 p-1 rounded-xl border border-white/5">
           <button
+            onClick={() => setActiveTab('optimizer')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'optimizer'
+                ? 'bg-brand-500 text-white shadow-glow'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+            }`}
+          >
+            <Gauge className="w-3.5 h-3.5" />
+            <span>Profile Optimizer</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('scraped_posts')}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'scraped_posts'
@@ -269,7 +283,7 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
             }`}
           >
             <Compass className="w-3.5 h-3.5" />
-            <span>Multi-Type Scraper</span>
+            <span>Hiring & Posts</span>
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/10">{scrapedPosts.length}</span>
           </button>
 
@@ -298,6 +312,8 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
           </button>
         )}
       </div>
+
+      {activeTab === 'optimizer' && <LinkedInOptimizerView />}
 
       {/* =========================================================================
           TAB 1: MULTI-TYPE LINKEDIN SCRAPER

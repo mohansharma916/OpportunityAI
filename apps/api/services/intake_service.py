@@ -64,6 +64,22 @@ class IntakeService:
         if intake:
             return intake
 
+        if user_id:
+            # Single-candidate setup: a signed-in user takes over an intake saved before sign-in,
+            # so the UI, the worker and the API always read the same answer bank.
+            res = await db.execute(
+                select(CandidateIntakeModel)
+                .where(CandidateIntakeModel.user_id.is_(None))
+                .order_by(CandidateIntakeModel.updated_at.desc())
+                .limit(1)
+            )
+            unowned = res.scalar_one_or_none()
+            if unowned:
+                unowned.user_id = user_id
+                await db.commit()
+                await db.refresh(unowned)
+                return unowned
+
         intake = CandidateIntakeModel(
             user_id=user_id,
             identity={},

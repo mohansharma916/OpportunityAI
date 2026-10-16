@@ -38,7 +38,7 @@ export default function OpportunityOSApp() {
     },
     linkedin: {
       title: 'LinkedIn',
-      subtitle: 'Hiring posts to track, and the post studio',
+      subtitle: 'Profile audit and approved edits, hiring posts to track, and the post studio',
       icon: Share2,
     },
   };

@@ -136,3 +136,15 @@ def test_purge_drops_legacy_credentials(tmp_path):
     assert "account_credentials" not in inspector.get_table_names()
     cols = {c["name"] for c in inspector.get_columns("scraping_platforms")}
     assert cols == {"id", "name"}
+
+
+@pytest.mark.asyncio
+async def test_signed_in_user_claims_intake_saved_before_sign_in():
+    async for db in get_db():
+        await IntakeService.update(db, {"identity": {"full_name": "Priya Raman"}})
+        claimed = await IntakeService.get_or_create(db, user_id="user-1")
+        assert claimed.identity["full_name"] == "Priya Raman"
+        assert claimed.user_id == "user-1"
+        # Calls without a user (worker, optimizer) read the same row
+        assert (await IntakeService.get_or_create(db)).id == claimed.id
+        break

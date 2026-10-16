@@ -57,7 +57,7 @@ export function Navigation({
     {
       id: 'linkedin',
       label: 'LinkedIn',
-      description: 'Hiring posts & post studio',
+      description: 'Profile optimizer, hiring posts',
       icon: Share2,
       number: '2',
       badgeColor: 'from-indigo-500 to-purple-400',

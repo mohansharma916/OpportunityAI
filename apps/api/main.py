@@ -23,6 +23,7 @@ from apps.api.services.onboarding_service import OnboardingService
 from apps.api.services.linkedin_growth_service import LinkedInGrowthService
 from apps.api.services.platform_service import PlatformService
 from apps.api.services.intake_service import IntakeService
+from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerService
 from apps.api.services.tracker_service import (
     DuplicateApplicationError,
     STATUSES as TRACKER_STATUSES,
@@ -177,9 +178,14 @@ class CompleteOnboardingRequest(BaseModel):
     verified_data: Dict[str, Any]
 
 
-class ApplyProfileOptRequest(BaseModel):
-    field: str
-    value: str
+class ImportExportRequest(BaseModel):
+    path: Optional[str] = None
+    use_claude: Optional[bool] = None
+
+
+class DraftDecisionRequest(BaseModel):
+    decision: str  # APPROVE, REJECT, REOPEN, MARK_APPLIED
+    value: Optional[str] = None
 
 
 class GeneratePostRequest(BaseModel):
@@ -741,22 +747,37 @@ async def get_linkedin_dashboard(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/linkedin/profile-optimizer")
-async def get_profile_optimizer(db: AsyncSession = Depends(get_db)):
-    try:
-        data = await LinkedInGrowthService.analyze_and_optimize_profile(db)
-        return data
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+@app.get("/api/linkedin/optimizer")
+async def get_linkedin_optimizer(db: AsyncSession = Depends(get_db)):
+    return await LinkedInOptimizerService.state(db)
 
 
-@app.post("/api/linkedin/profile-optimizer/apply")
-async def apply_profile_opt(req: ApplyProfileOptRequest, db: AsyncSession = Depends(get_db)):
+@app.post("/api/linkedin/optimizer/import-export")
+async def import_linkedin_export(req: ImportExportRequest, db: AsyncSession = Depends(get_db)):
     try:
-        res = await LinkedInGrowthService.apply_profile_recommendation(db, req.field, req.value)
-        return res
-    except Exception as e:
+        await LinkedInOptimizerService.import_export(db, req.path)
+    except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return await LinkedInOptimizerService.analyze(db, use_claude=req.use_claude)
+
+
+@app.post("/api/linkedin/optimizer/analyze")
+async def analyze_linkedin_profile(use_claude: Optional[bool] = Query(None), db: AsyncSession = Depends(get_db)):
+    try:
+        return await LinkedInOptimizerService.analyze(db, use_claude=use_claude)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/linkedin/optimizer/drafts/{draft_id}")
+async def decide_linkedin_draft(draft_id: str, req: DraftDecisionRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        draft = await LinkedInOptimizerService.decide(db, draft_id, req.decision, req.value)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return LinkedInOptimizerService.draft_dict(draft)
 
 
 @app.get("/api/linkedin/brand-strategy")
