@@ -49,7 +49,7 @@ interface LinkedInGrowthAgentViewProps {
 }
 
 export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInGrowthAgentViewProps) {
-  const [activeTab, setActiveTab] = useState<'scraped_posts' | 'post_studio' | 'connections' | 'credentials'>('scraped_posts');
+  const [activeTab, setActiveTab] = useState<'scraped_posts' | 'post_studio'>('scraped_posts');
   const [loading, setLoading] = useState(false);
 
   // 1. Multi-Type Scraped Posts State
@@ -70,22 +70,6 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
   const [isCopied, setIsCopied] = useState(false);
   const [isPublishingPost, setIsPublishingPost] = useState(false);
 
-  // 3. Selenium Connection Automation State
-  const [relationships, setRelationships] = useState<any[]>([]);
-  const [connectionBatchCount, setConnectionBatchCount] = useState<number>(3);
-  const [customNoteTemplate, setCustomNoteTemplate] = useState<string>('');
-  const [targetRoleFilter, setTargetRoleFilter] = useState<string>('Engineering Leaders & Recruiters');
-  const [isAutomatingConnections, setIsAutomatingConnections] = useState(false);
-  const [seleniumLogs, setSeleniumLogs] = useState<any[]>([]);
-  const [recentRecipients, setRecentRecipients] = useState<any[]>([]);
-
-  // 4. LinkedIn Credentials State
-  const [linkedinUsername, setLinkedinUsername] = useState('');
-  const [linkedinPassword, setLinkedinPassword] = useState('');
-  const [linkedinCookies, setLinkedinCookies] = useState('');
-  const [isSavingCreds, setIsSavingCreds] = useState(false);
-  const [hasSavedCreds, setHasSavedCreds] = useState(false);
-
   // Notification Toast
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -93,11 +77,9 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const [scrapedRes, relsRes, libRes, credsRes] = await Promise.all([
+      const [scrapedRes, libRes] = await Promise.all([
         fetchApi<any[]>('/api/linkedin/scraped-posts'),
-        fetchApi<any[]>('/api/linkedin/relationships'),
         fetchApi<any[]>('/api/linkedin/post-studio/library'),
-        fetchApi<any>('/api/linkedin/credentials'),
       ]);
 
       if (scrapedRes) {
@@ -111,13 +93,7 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
           }
         }
       }
-      if (relsRes) setRelationships(relsRes);
       if (libRes) setAnalyzedLibrary(libRes);
-      if (credsRes && credsRes.username) {
-        setLinkedinUsername(credsRes.username);
-        setHasSavedCreds(true);
-        if (credsRes.cookies) setLinkedinCookies(credsRes.cookies);
-      }
     } catch (err) {
       console.error('Failed to load LinkedIn data:', err);
     } finally {
@@ -231,58 +207,26 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  // Run Selenium Connection Automation
-  const handleRunConnectionAutomation = async (customNote?: string) => {
+  // Add a hiring post to the application tracker (source: LinkedIn post)
+  const handleTrackHiringPost = async (post: any) => {
     try {
-      setIsAutomatingConnections(true);
-      setSeleniumLogs([
-        {
-          timestamp: new Date().toLocaleTimeString(),
-          engine: 'Selenium WebDriver (ChromeDriver v128)',
-          message: 'Initializing Chrome in headless stealth mode with randomized viewport and touch emulation...',
-        },
-      ]);
-
-      const res = await fetchApi<any>('/api/linkedin/automate-connections', {
+      await fetchApi('/api/tracker', {
         method: 'POST',
         body: JSON.stringify({
-          count: connectionBatchCount,
-          target_role: targetRoleFilter,
-          note_template: customNote || customNoteTemplate || undefined,
+          company: post.author_company || post.author_name,
+          role: post.role_or_project_title || 'Role from LinkedIn post',
+          source_platform: 'LinkedIn post',
+          apply_channel: 'LINKEDIN_POST',
+          post_url: post.post_url,
+          contact_name: post.author_name,
+          contact_url: post.author_profile_url,
+          notes: post.how_to_apply ? `How to apply: ${post.how_to_apply}` : undefined,
         }),
       });
-
-      if (res && res.logs) {
-        setSeleniumLogs(res.logs);
-        setRecentRecipients(res.recipients || []);
-        setNotification(`Dispatched ${res.connected_count} connection invitations with human delays!`);
-      }
-    } catch (err) {
-      console.error('Connection automation error:', err);
-    } finally {
-      setIsAutomatingConnections(false);
-    }
-  };
-
-  // Save Credentials
-  const handleSaveCredentials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setIsSavingCreds(true);
-      await fetchApi('/api/linkedin/credentials', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: linkedinUsername,
-          password: linkedinPassword,
-          cookies: linkedinCookies || undefined,
-        }),
-      });
-      setHasSavedCreds(true);
-      setNotification('LinkedIn credentials saved securely.');
+      setNotification(`Tracking ${post.role_or_project_title || 'role'} at ${post.author_company || post.author_name}.`);
     } catch (err: any) {
-      alert(`Failed to save credentials: ${err.message}`);
-    } finally {
-      setIsSavingCreds(false);
+      const msg = String(err?.message || '');
+      setNotification(msg.includes('Already tracked') ? 'This role is already in your tracker.' : `Could not track: ${msg}`);
     }
   };
 
@@ -340,31 +284,6 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
             <Wand2 className="w-3.5 h-3.5" />
             <span>LinkedIn Post Studio</span>
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300">Human Voice</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('connections')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'connections'
-                ? 'bg-brand-500 text-white shadow-glow'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            <span>Selenium Connection Bot</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('credentials')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'credentials'
-                ? 'bg-brand-500 text-white shadow-glow'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-            }`}
-          >
-            <KeyRound className="w-3.5 h-3.5" />
-            <span>Credentials Vault</span>
-            {hasSavedCreds && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
           </button>
         </div>
 
@@ -556,17 +475,15 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
                         <span>Analyze & Create in Post Studio</span>
                       </button>
 
-                      <button
-                        onClick={() => {
-                          const note = `Hi ${post.author_name.split(' ')[0]}, saw your post regarding "${post.role_or_project_title || post.author_company}". Given my background in distributed systems, would love to connect!`;
-                          handleRunConnectionAutomation(note);
-                          setActiveTab('connections');
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-400 border border-white/10 text-xs font-medium text-zinc-200 transition-all"
-                      >
-                        <UserPlus className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Connect with {post.author_name.split(' ')[0]}</span>
-                      </button>
+                      {post.scrape_type === 'HIRING_POST' && (
+                        <button
+                          onClick={() => handleTrackHiringPost(post)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-300 hover:bg-surface-400 border border-white/10 text-xs font-medium text-zinc-200 transition-all"
+                        >
+                          <UserPlus className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Track in Applications</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -908,160 +825,6 @@ export function LinkedInGrowthAgentView({ onRefreshAllData, profile }: LinkedInG
         </div>
       )}
 
-      {/* =========================================================================
-          TAB 3: SELENIUM CONNECTION AUTOMATION BOT
-         ========================================================================= */}
-      {activeTab === 'connections' && (
-        <div className="space-y-6">
-          <div className="p-6 rounded-2xl bg-surface-200/90 border border-white/5 space-y-5">
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-emerald-400" />
-                <span>Selenium WebDriver Connection Automation</span>
-              </h3>
-              <p className="text-xs text-zinc-400 mt-1">
-                Automates targeted connection requests with Selenium browser emulation: natural mouse paths, human typing delays (50-120ms/keystroke), page scroll curves, and zero bot footprint.
-              </p>
-            </div>
-
-            {/* Configuration Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-              <div>
-                <label className="text-[11px] font-medium text-zinc-300 block mb-1">Target Profile Filter</label>
-                <select
-                  value={targetRoleFilter}
-                  onChange={(e) => setTargetRoleFilter(e.target.value)}
-                  className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-                >
-                  <option value="Engineering Leaders & Recruiters">Engineering Leaders & Recruiters</option>
-                  <option value="Founders & CTOs">Founders & CTOs</option>
-                  <option value="Hiring Managers">Hiring Managers</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-medium text-zinc-300 block mb-1">Batch Batch Size (Daily Safe Cap)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={connectionBatchCount}
-                  onChange={(e) => setConnectionBatchCount(parseInt(e.target.value) || 1)}
-                  className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  onClick={() => handleRunConnectionAutomation()}
-                  disabled={isAutomatingConnections}
-                  className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-glow transition-all flex items-center justify-center gap-2"
-                >
-                  {isAutomatingConnections ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  <span>{isAutomatingConnections ? 'Running Selenium Bot...' : 'Launch Connection Bot'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Custom Note Template */}
-            <div>
-              <label className="text-[11px] font-medium text-zinc-300 block mb-1">Custom Note Template (Optional)</label>
-              <input
-                type="text"
-                value={customNoteTemplate}
-                onChange={(e) => setCustomNoteTemplate(e.target.value)}
-                placeholder="Hi {name}, saw your team's work at {company}. Given my background in distributed systems, would love to connect!"
-                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500"
-              />
-            </div>
-
-            {/* Live Terminal Output */}
-            {seleniumLogs.length > 0 && (
-              <div className="rounded-xl bg-black/80 border border-white/10 p-4 font-mono text-xs text-zinc-300 space-y-2">
-                <div className="flex items-center justify-between border-b border-white/10 pb-2 text-zinc-500 text-[11px]">
-                  <span className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Selenium Live Automation Stream
-                  </span>
-                  <span>stealth_chromedriver_v128</span>
-                </div>
-                <div className="space-y-1.5 max-h-56 overflow-y-auto pt-2">
-                  {seleniumLogs.map((log, index) => (
-                    <div key={index} className="flex items-start gap-2">
-                      <span className="text-zinc-500 select-none">[{log.timestamp}]</span>
-                      <span className="text-cyan-400 select-none">[{log.action || log.engine}]</span>
-                      <span className={log.status === 'SUCCESS' ? 'text-emerald-300' : 'text-zinc-200'}>{log.message}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          TAB 4: CREDENTIALS VAULT
-         ========================================================================= */}
-      {activeTab === 'credentials' && (
-        <div className="max-w-xl mx-auto p-6 rounded-2xl bg-surface-200/90 border border-white/5 space-y-5 shadow-2xl">
-          <div className="border-b border-white/5 pb-4">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-brand-400" />
-              <span>LinkedIn Automation Credentials Vault</span>
-            </h3>
-            <p className="text-xs text-zinc-400 mt-1">
-              Credentials are used strictly by the local Selenium automation bot. All passwords and cookies are stored with encrypted protection.
-            </p>
-          </div>
-
-          <form onSubmit={handleSaveCredentials} className="space-y-4">
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">LinkedIn Username / Email</label>
-              <input
-                required
-                type="text"
-                value={linkedinUsername}
-                onChange={(e) => setLinkedinUsername(e.target.value)}
-                placeholder="your.email@example.com"
-                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">LinkedIn Password</label>
-              <input
-                required
-                type="password"
-                value={linkedinPassword}
-                onChange={(e) => setLinkedinPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-500"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-medium text-zinc-300 block mb-1">Session Cookie (li_at) (Optional for 2FA bypass)</label>
-              <input
-                type="text"
-                value={linkedinCookies}
-                onChange={(e) => setLinkedinCookies(e.target.value)}
-                placeholder="AQEDAR05189XYZ..."
-                className="w-full bg-surface-300 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-brand-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSavingCreds}
-              className="w-full py-2.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-xs font-semibold text-white shadow-glow transition-all flex items-center justify-center gap-2"
-            >
-              {isSavingCreds ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-              <span>{isSavingCreds ? 'Saving Credentials...' : 'Save to Vault'}</span>
-            </button>
-          </form>
-        </div>
-      )}
     </div>
   );
 }

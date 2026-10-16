@@ -25,7 +25,9 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     let message = `Request failed (${res.status})`;
     try {
       const errorJson = await res.json();
-      message = errorJson.detail || errorJson.message || JSON.stringify(errorJson);
+      const detail = errorJson.detail;
+      message =
+        (typeof detail === 'object' && detail?.message) || detail || errorJson.message || JSON.stringify(errorJson);
     } catch {
       const errorText = await res.text();
       if (errorText) message = errorText;

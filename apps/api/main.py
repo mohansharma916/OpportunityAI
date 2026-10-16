@@ -10,32 +10,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from apps.api.config import settings
 from apps.api.db import init_db, get_db
 from apps.api.services.profile_service import ProfileService
 from apps.api.services.opportunity_service import OpportunityService
 from apps.api.services.application_service import ApplicationService
-from apps.api.services.crm_service import CRMService
 from apps.api.services.activity_service import ActivityService
-from apps.api.services.analytics_service import AnalyticsService
-from apps.api.services.ai_command_service import AICommandService
-from apps.api.services.briefing_service import BriefingService
 from apps.api.services.auto_apply_service import AutoApplyService
 from apps.api.services.auth_service import AuthService
 from apps.api.services.onboarding_service import OnboardingService
-from apps.api.services.crawler_service import CrawlerService
 from apps.api.services.linkedin_growth_service import LinkedInGrowthService
 from apps.api.services.platform_service import PlatformService
+from apps.api.services.intake_service import IntakeService
+from apps.api.services.tracker_service import (
+    DuplicateApplicationError,
+    STATUSES as TRACKER_STATUSES,
+    TrackerService,
+)
 from apps.api.models import (
     OpportunityModel,
     ResumeVariantModel,
     UserModel,
     ScrapingPlatformModel,
-    AccountCredentialModel,
-    ContactModel,
-    OutreachSequenceModel,
 )
 
 
@@ -148,27 +145,6 @@ class CreateExperienceRequest(BaseModel):
     technologies: Optional[List[str]] = []
 
 
-class RunCrawlerRequest(BaseModel):
-    mode: Optional[str] = "IMMEDIATE"
-    max_duration_minutes: Optional[int] = 15
-    max_applications: Optional[int] = 5
-    min_match_score: Optional[float] = 80.0
-    target_platforms: Optional[List[str]] = None
-    opportunity_types: Optional[List[str]] = None
-    auto_apply_enabled: Optional[bool] = True
-
-
-class UpdateScheduleRequest(BaseModel):
-    is_active: Optional[bool] = None
-    interval_hours: Optional[int] = None
-    max_duration_minutes: Optional[int] = None
-    max_applications: Optional[int] = None
-    min_match_score: Optional[float] = None
-    auto_apply_enabled: Optional[bool] = None
-    target_platforms: Optional[List[str]] = None
-    opportunity_types: Optional[List[str]] = None
-
-
 class UpdateAppStatusRequest(BaseModel):
     status: str
 
@@ -179,20 +155,6 @@ class CreateTaskRequest(BaseModel):
 
 class ToggleTaskRequest(BaseModel):
     status: Optional[str] = None
-
-
-class AICommandRequest(BaseModel):
-    command: str
-
-
-class CreateContactRequest(BaseModel):
-    company_name: str
-    full_name: str
-    role: str
-    email: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    notes: Optional[str] = None
-    opportunity_id: Optional[str] = None
 
 
 class RegisterRequest(BaseModel):
@@ -250,8 +212,6 @@ class CreatePlatformRequest(BaseModel):
     url: str
     category: str = "JOB_BOARD"
     requires_auth: bool = False
-    auth_username: Optional[str] = None
-    auth_password: Optional[str] = None
     auth_notes: Optional[str] = None
     crawl_frequency_hours: int = 6
 
@@ -262,37 +222,42 @@ class UpdatePlatformRequest(BaseModel):
     status: Optional[str] = None
     category: Optional[str] = None
     requires_auth: Optional[bool] = None
-    auth_username: Optional[str] = None
-    auth_password: Optional[str] = None
     auth_notes: Optional[str] = None
     crawl_frequency_hours: Optional[int] = None
 
 
-class HumanApplyRequest(BaseModel):
-    user_id: Optional[str] = None
-    password: Optional[str] = None
+class UpdateIntakeRequest(BaseModel):
+    identity: Optional[Dict[str, Any]] = None
+    targeting: Optional[Dict[str, Any]] = None
+    documents: Optional[Dict[str, Any]] = None
+    screening: Optional[Dict[str, Any]] = None
+    accounts: Optional[Dict[str, Any]] = None
+    linkedin: Optional[Dict[str, Any]] = None
 
 
-class LinkedInConnectionsRequest(BaseModel):
-    count: int = 5
-    target_role: Optional[str] = None
-    note_template: Optional[str] = None
-
-
-class LinkedInCredentialsRequest(BaseModel):
-    username: str
-    password: str
-    cookies: Optional[str] = None
+class TrackedApplicationRequest(BaseModel):
+    company: Optional[str] = None
+    role: Optional[str] = None
+    job_url: Optional[str] = None
+    source_platform: Optional[str] = None
+    apply_channel: Optional[str] = None
+    opportunity_id: Optional[str] = None
+    post_url: Optional[str] = None
+    match_score: Optional[float] = None
+    resume_variant: Optional[str] = None
+    cover_note: Optional[str] = None
+    status: Optional[str] = None
+    submitted_at: Optional[str] = None
+    next_action: Optional[str] = None
+    next_action_due: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_url: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class SynthesizeHumanPostRequest(BaseModel):
     angle_key: str = "PERSONAL_PRODUCTION_EXPERIENCE"
     custom_notes: Optional[str] = None
-
-
-class GenerateOutreachRequest(BaseModel):
-    opportunity_id: Optional[str] = None
-    tone: Optional[str] = "TECHNICAL"
 
 
 # -------------------------------------------------------------------
@@ -728,112 +693,6 @@ async def toggle_application_task_endpoint(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# -------------------------------------------------------------------
-# Autonomous Crawler & Auto-Apply Control Endpoints
-# -------------------------------------------------------------------
-
-@app.post("/api/crawler/run")
-async def run_crawler_endpoint(
-    req: RunCrawlerRequest = RunCrawlerRequest(), db: AsyncSession = Depends(get_db)
-):
-    try:
-        result = await CrawlerService.run_crawler(
-            db,
-            mode=req.mode or "IMMEDIATE",
-            max_duration_minutes=req.max_duration_minutes or 15,
-            max_applications=req.max_applications or 5,
-            min_match_score=req.min_match_score or 80.0,
-            target_platforms=req.target_platforms,
-            opportunity_types=req.opportunity_types,
-            auto_apply_enabled=req.auto_apply_enabled if req.auto_apply_enabled is not None else True,
-        )
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/api/crawler/status")
-async def get_crawler_status_endpoint(db: AsyncSession = Depends(get_db)):
-    try:
-        latest = await CrawlerService.get_latest_session(db)
-        sched = await CrawlerService.get_or_create_schedule(db)
-        return {
-            "latest_session": latest,
-            "schedule": sched,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/crawler/schedule")
-async def update_crawler_schedule_endpoint(
-    req: UpdateScheduleRequest, db: AsyncSession = Depends(get_db)
-):
-    try:
-        sched = await CrawlerService.update_schedule(db, req.dict(exclude_unset=True))
-        return sched
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-class CreateSequenceRequest(BaseModel):
-    opportunity_id: Optional[str] = "general-opp"
-    contact_id: str
-
-
-@app.get("/api/contacts")
-@app.get("/api/crm/contacts")
-async def list_contacts(db: AsyncSession = Depends(get_db)):
-    contacts = await CRMService.get_contacts(db)
-    return contacts
-
-
-@app.post("/api/contacts")
-@app.post("/api/crm/contacts")
-async def create_contact(req: CreateContactRequest, db: AsyncSession = Depends(get_db)):
-    contact = await CRMService.create_contact(
-        db,
-        company_name=req.company_name,
-        full_name=req.full_name,
-        role=req.role,
-        email=req.email,
-        linkedin_url=req.linkedin_url,
-        notes=req.notes,
-        associated_opportunity_id=req.opportunity_id,
-    )
-    return contact
-
-
-@app.post("/api/opportunities/{opportunity_id}/outreach/{contact_id}")
-async def stage_outreach(
-    opportunity_id: str, contact_id: str, db: AsyncSession = Depends(get_db)
-):
-    seq = await CRMService.create_outreach_sequence(db, opportunity_id, contact_id)
-    return seq
-
-
-@app.post("/api/crm/sequences")
-async def create_crm_sequence_endpoint(req: CreateSequenceRequest, db: AsyncSession = Depends(get_db)):
-    seq = await CRMService.create_outreach_sequence(db, req.opportunity_id or "general-opp", req.contact_id)
-    return seq
-
-
-@app.get("/api/outreach")
-@app.get("/api/crm/sequences")
-async def list_outreach(db: AsyncSession = Depends(get_db)):
-    seqs = await CRMService.get_outreach_sequences(db)
-    return seqs
-
-
-@app.post("/api/outreach/messages/{message_id}/send")
-async def send_outreach_message(message_id: str, db: AsyncSession = Depends(get_db)):
-    try:
-        msg = await CRMService.send_message(db, message_id)
-        return {"status": "SUCCESS", "message": f"Outreach email dispatched: '{msg.subject}'", "data": msg}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
 @app.get("/api/activity")
 async def get_activity_feed(
     limit: int = Query(50),
@@ -842,28 +701,6 @@ async def get_activity_feed(
 ):
     logs = await ActivityService.get_recent_activity(db, limit=limit, entity_type=entity_type)
     return logs
-
-
-@app.get("/api/analytics")
-async def get_analytics(db: AsyncSession = Depends(get_db)):
-    data = await AnalyticsService.get_dashboard_metrics(db)
-    return data
-
-
-@app.post("/api/ai/command")
-async def run_ai_command(req: AICommandRequest, db: AsyncSession = Depends(get_db)):
-    res = await AICommandService.execute_command(db, req.command)
-    return res
-
-
-@app.get("/api/briefing")
-async def get_daily_briefing(
-    user_id: Optional[str] = Query(None),
-    user_name: Optional[str] = Query(None),
-    db: AsyncSession = Depends(get_db),
-):
-    briefing = await BriefingService.generate_daily_briefing(db, user_id=user_id, user_name=user_name)
-    return briefing
 
 
 @app.post("/api/applications/auto-run")
@@ -1060,8 +897,6 @@ async def get_platforms_endpoint(db: AsyncSession = Depends(get_db)):
                 "category": p.category,
                 "added_by": p.added_by,
                 "requires_auth": p.requires_auth,
-                "auth_username": p.auth_username,
-                "has_password": bool(p.auth_password),
                 "auth_notes": p.auth_notes,
                 "status": p.status,
                 "crawl_frequency_hours": p.crawl_frequency_hours,
@@ -1084,8 +919,6 @@ async def create_platform_endpoint(req: CreatePlatformRequest, db: AsyncSession 
             url=req.url,
             category=req.category,
             requires_auth=req.requires_auth,
-            auth_username=req.auth_username,
-            auth_password=req.auth_password,
             auth_notes=req.auth_notes,
             crawl_frequency_hours=req.crawl_frequency_hours,
             added_by="USER",
@@ -1177,7 +1010,7 @@ async def scrape_all_platforms_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 # -------------------------------------------------------------------
-# Date-Grouped Opportunities & Human-Like Auto-Apply
+# Date-Grouped Opportunities & Apply Queue
 # -------------------------------------------------------------------
 
 
@@ -1202,85 +1035,119 @@ async def update_opportunity_user_status_endpoint(
 
 
 @app.post("/api/opportunities/{opportunity_id}/human-apply")
-async def human_apply_endpoint(
-    opportunity_id: str,
-    req: HumanApplyRequest,
-    db: AsyncSession = Depends(get_db),
-):
+async def human_apply_endpoint(opportunity_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Queues the opportunity in the application tracker. The worker on the candidate's
+    machine fills it in their own browser (`python -m apps.worker.cli queue`), and
+    nothing is submitted until the candidate approves it.
+    """
+    opp = await opp_service.get_opportunity_by_id(db, opportunity_id)
+    if not opp:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+    score = opp.matching_score.overall_match_score if opp.matching_score else None
     try:
-        outcome = await opp_service.human_like_apply_opportunity(
-            db=db,
-            opportunity_id=opportunity_id,
-            user_id=req.user_id,
-            password=req.password,
-        )
-        return outcome
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        row = await TrackerService.create(db, {
+            "company": opp.company_name,
+            "role": opp.title,
+            "job_url": opp.url,
+            "source_platform": opp.source,
+            "opportunity_id": opp.id,
+            "match_score": score,
+        })
+    except DuplicateApplicationError as dup:
+        raise HTTPException(status_code=409, detail={
+            "message": str(dup), "application": TrackerService.to_dict(dup.existing),
+        })
+    return {
+        "success": True,
+        "status": row.status,
+        "application": TrackerService.to_dict(row),
+        "message": "Queued. The worker fills it in your browser; you approve before anything is submitted.",
+    }
 
 
 # -------------------------------------------------------------------
-# Feature 2: LinkedIn Scraper & Selenium Automation Endpoints
+# Candidate Intake (Answer Bank)
 # -------------------------------------------------------------------
 
-@app.post("/api/linkedin/scrape-opportunities")
-async def scrape_linkedin_opportunities_endpoint(
-    keywords: Optional[str] = None,
+@app.get("/api/intake")
+async def get_intake_endpoint(user_id: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)):
+    intake = await IntakeService.get_or_create(db, user_id=user_id)
+    return IntakeService.to_dict(intake)
+
+
+@app.put("/api/intake")
+async def update_intake_endpoint(
+    req: UpdateIntakeRequest,
+    user_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    try:
-        opps = await LinkedInGrowthService.scrape_linkedin_opportunities(db, keywords=keywords)
-        return {
-            "success": True,
-            "total": len(opps),
-            "opportunities": opps,
-            "message": f"Successfully scraped {len(opps)} opportunities from LinkedIn.",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    intake = await IntakeService.update(db, req.model_dump(exclude_none=True), user_id=user_id)
+    return IntakeService.to_dict(intake)
 
 
-@app.post("/api/linkedin/automate-connections")
-async def automate_linkedin_connections_endpoint(
-    req: LinkedInConnectionsRequest,
+# -------------------------------------------------------------------
+# Application Tracker
+# -------------------------------------------------------------------
+
+@app.get("/api/tracker")
+async def list_tracker_endpoint(
+    status: Optional[str] = Query(None),
+    source_platform: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    rows = await TrackerService.list(db, status=status, source_platform=source_platform, search=search)
+    return [TrackerService.to_dict(r) for r in rows]
+
+
+@app.get("/api/tracker/stats")
+async def tracker_stats_endpoint(db: AsyncSession = Depends(get_db)):
+    stats = await TrackerService.stats(db)
+    stats["statuses"] = TRACKER_STATUSES
+    return stats
+
+
+@app.post("/api/tracker")
+async def create_tracker_endpoint(req: TrackedApplicationRequest, db: AsyncSession = Depends(get_db)):
     try:
-        res = await LinkedInGrowthService.automate_connections(
-            db=db,
-            count=req.count,
-            target_role=req.target_role,
-            note_template=req.note_template,
-        )
-        return res
-    except Exception as e:
+        row = await TrackerService.create(db, req.model_dump(exclude_none=True))
+    except DuplicateApplicationError as dup:
+        raise HTTPException(status_code=409, detail={
+            "message": str(dup), "application": TrackerService.to_dict(dup.existing),
+        })
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return TrackerService.to_dict(row)
 
 
-@app.get("/api/linkedin/credentials")
-async def get_linkedin_credentials_endpoint(db: AsyncSession = Depends(get_db)):
-    try:
-        creds = await LinkedInGrowthService.get_credentials(db)
-        return creds or {"configured": False}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/linkedin/credentials")
-async def save_linkedin_credentials_endpoint(
-    req: LinkedInCredentialsRequest,
-    db: AsyncSession = Depends(get_db),
+@app.put("/api/tracker/{application_id}")
+async def update_tracker_endpoint(
+    application_id: str, req: TrackedApplicationRequest, db: AsyncSession = Depends(get_db)
 ):
     try:
-        res = await LinkedInGrowthService.save_credentials(
-            db=db,
-            username=req.username,
-            password=req.password,
-            cookies=req.cookies,
-        )
-        return res
-    except Exception as e:
+        row = await TrackerService.update(db, application_id, req.model_dump(exclude_unset=True))
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except DuplicateApplicationError as dup:
+        raise HTTPException(status_code=409, detail={
+            "message": str(dup), "application": TrackerService.to_dict(dup.existing),
+        })
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return TrackerService.to_dict(row)
+
+
+@app.delete("/api/tracker/{application_id}")
+async def delete_tracker_endpoint(application_id: str, db: AsyncSession = Depends(get_db)):
+    if not await TrackerService.delete(db, application_id):
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"success": True}
+
+
+# -------------------------------------------------------------------
+# LinkedIn Post Studio Endpoints
+# -------------------------------------------------------------------
 
 
 @app.post("/api/linkedin/posts/{post_id}/publish")
@@ -1342,79 +1209,3 @@ async def get_analyzed_posts_library_endpoint(
         return await LinkedInGrowthService.get_analyzed_posts_library(db)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-# -------------------------------------------------------------------
-# Feature 3: Automated Outreach & Networking CRM Endpoints
-# -------------------------------------------------------------------
-
-@app.post("/api/crm/contacts/{contact_id}/generate-outreach")
-async def generate_contact_outreach_endpoint(
-    contact_id: str,
-    req: GenerateOutreachRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        contact_res = await db.execute(select(ContactModel).where(ContactModel.id == contact_id))
-        contact = contact_res.scalar_one_or_none()
-        if not contact:
-            raise HTTPException(status_code=404, detail="Contact not found")
-
-        domain_prof = await ProfileService.get_domain_profile(db)
-        cand_name = domain_prof.full_name if domain_prof else "Candidate"
-        skills = ", ".join([s.skill_name for s in domain_prof.skills[:3]]) if domain_prof and domain_prof.skills else "Distributed Systems, Python, Next.js"
-
-        subject = f"Regarding opportunities at {contact.company_name} — {cand_name}"
-        body = (
-            f"Hi {contact.full_name.split()[0]},\n\n"
-            f"I came across your work leading technical recruitment/engineering at {contact.company_name}. "
-            f"I specialize in {skills} with a focus on high-reliability, cloud-native architecture.\n\n"
-            f"I'd love to connect and see if my technical background could be of value to your upcoming engineering roadmap.\n\n"
-            f"Best regards,\n{cand_name}"
-        )
-        return {
-            "contact_id": contact.id,
-            "subject": subject,
-            "body": body,
-            "channel": "EMAIL",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/crm/sequences/{sequence_id}/advance")
-async def advance_crm_sequence_endpoint(
-    sequence_id: str,
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        stmt = (
-            select(OutreachSequenceModel)
-            .options(selectinload(OutreachSequenceModel.messages))
-            .where(OutreachSequenceModel.id == sequence_id)
-        )
-        res = await db.execute(stmt)
-        seq = res.scalar_one_or_none()
-        if not seq:
-            raise HTTPException(status_code=404, detail="Sequence not found")
-
-        pending_msgs = [m for m in seq.messages if m.status == "PENDING"]
-        if not pending_msgs:
-            return {"success": False, "message": "All steps in this cadence have already been dispatched."}
-
-        next_msg = sorted(pending_msgs, key=lambda m: m.step_number)[0]
-        sent = await CRMService.send_message(db, next_msg.id)
-        seq.current_step = next_msg.step_number + 1
-        await db.commit()
-
-        return {
-            "success": True,
-            "sequence_id": seq.id,
-            "dispatched_step": next_msg.step_number,
-            "subject": sent.subject,
-            "sent_at": sent.sent_at.isoformat() if sent.sent_at else None,
-            "message": f"Dispatched Step {next_msg.step_number} outreach email successfully.",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-

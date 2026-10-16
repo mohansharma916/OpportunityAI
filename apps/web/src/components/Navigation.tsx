@@ -2,14 +2,13 @@
 
 import React from 'react';
 import {
+  ClipboardList,
   Globe,
+  ListChecks,
   Share2,
-  Send,
   Zap,
-  Sliders,
-  User,
   LogOut,
-  KeyRound,
+  UserCircle2,
   ShieldCheck,
 } from 'lucide-react';
 
@@ -30,30 +29,38 @@ export function Navigation({
   onLogout,
   onOpenProfile,
 }: NavigationProps) {
-  const threeMainFeatures = [
+  const navItems = [
+    {
+      id: 'intake',
+      label: 'Candidate Intake',
+      description: 'Answer bank every form is filled from',
+      icon: ClipboardList,
+      number: '0',
+      badgeColor: 'from-amber-500 to-orange-400',
+    },
     {
       id: 'scraper',
-      label: 'Job & Project Scraper',
-      description: 'Platform list, Date tracker & Human apply',
+      label: 'Remote Jobs',
+      description: 'Platforms, discovery & apply queue',
       icon: Globe,
       number: '1',
       badgeColor: 'from-blue-500 to-cyan-400',
     },
     {
+      id: 'applications',
+      label: 'Applications',
+      description: 'Tracker, approvals & follow-ups',
+      icon: ListChecks,
+      number: '1',
+      badgeColor: 'from-emerald-500 to-teal-400',
+    },
+    {
       id: 'linkedin',
-      label: 'LinkedIn Scraper & Bot',
-      description: 'Jobs scrape, Selenium bot & Post studio',
+      label: 'LinkedIn',
+      description: 'Hiring posts & post studio',
       icon: Share2,
       number: '2',
       badgeColor: 'from-indigo-500 to-purple-400',
-    },
-    {
-      id: 'crm',
-      label: 'Outreach & Networking CRM',
-      description: 'Recruiter cadences & Auto follow-ups',
-      icon: Send,
-      number: '3',
-      badgeColor: 'from-emerald-500 to-teal-400',
     },
   ];
 
@@ -71,7 +78,7 @@ export function Navigation({
                 OpportunityOS
               </span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest block font-mono">
-                3 Core Pillars
+                Remote Jobs + LinkedIn
               </span>
             </div>
           </div>
@@ -84,9 +91,9 @@ export function Navigation({
           </span>
         </div>
 
-        {/* Three Main Feature Navigation Links */}
+        {/* Feature Navigation Links */}
         <div className="p-3 space-y-2">
-          {threeMainFeatures.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
@@ -126,14 +133,14 @@ export function Navigation({
           })}
         </div>
 
-        {/* Credentials & Automation Status Chip */}
+        {/* Automation Guardrails Chip */}
         <div className="mx-3 mt-4 p-3.5 rounded-xl bg-surface-400/40 border border-white/5">
           <div className="flex items-center gap-2 mb-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] font-bold text-white">Human Automation Ready</span>
+            <span className="text-[11px] font-bold text-white">You approve every submit</span>
           </div>
           <p className="text-[10px] text-zinc-400 leading-relaxed">
-            Platform logins & credentials enabled for human-like typing delays, form filling, and connection invitations.
+            The worker uses your own browser logins (no stored passwords), human pacing, and pauses on CAPTCHAs or unknown questions.
           </p>
         </div>
       </div>
@@ -151,7 +158,7 @@ export function Navigation({
             <div className="overflow-hidden">
               <p className="text-xs font-medium text-white truncate">{user?.full_name || 'Candidate'}</p>
               <p className="text-[10px] text-zinc-400 flex items-center gap-1">
-                <KeyRound className="w-2.5 h-2.5" /> Identity & Vault
+                <UserCircle2 className="w-2.5 h-2.5" /> Profile & skills
               </p>
             </div>
           </div>

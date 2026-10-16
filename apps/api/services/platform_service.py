@@ -1,7 +1,7 @@
 """
-OpportunityOS — Scraping Platform & Credentials Service
+OpportunityOS — Scraping Platform Service
 Manages active web scraping platforms (user-configured and AI-discovered),
-stored authentication credentials for auto-applying, and scraping runs.
+and scraping runs. Logins live only in the candidate's browser profile.
 """
 
 import uuid
@@ -12,7 +12,6 @@ from sqlalchemy import select, desc
 
 from apps.api.models import (
     ScrapingPlatformModel,
-    AccountCredentialModel,
     OpportunityModel,
     CandidateProfileModel,
 )
@@ -172,8 +171,6 @@ class PlatformService:
         url: str,
         category: str = "JOB_BOARD",
         requires_auth: bool = False,
-        auth_username: Optional[str] = None,
-        auth_password: Optional[str] = None,
         auth_notes: Optional[str] = None,
         crawl_frequency_hours: int = 6,
         added_by: str = "USER",
@@ -186,8 +183,6 @@ class PlatformService:
             category=category,
             added_by=added_by,
             requires_auth=requires_auth,
-            auth_username=auth_username,
-            auth_password=auth_password,
             auth_notes=auth_notes,
             crawl_frequency_hours=crawl_frequency_hours,
             status="ACTIVE",
@@ -214,7 +209,7 @@ class PlatformService:
         platform_id: str,
         data: Dict[str, Any],
     ) -> ScrapingPlatformModel:
-        """Updates platform properties, status, or credentials."""
+        """Updates platform properties or status."""
         stmt = select(ScrapingPlatformModel).where(ScrapingPlatformModel.id == platform_id)
         res = await db.execute(stmt)
         platform = res.scalar_one_or_none()
@@ -341,53 +336,3 @@ class PlatformService:
             "last_scraped_at": platform.last_scraped_at.isoformat(),
             "status": "SUCCESS",
         }
-
-    # -------------------------------------------------------------------
-    # Account Credentials Management (e.g. for LinkedIn or general boards)
-    # -------------------------------------------------------------------
-    @staticmethod
-    async def get_credentials(db: AsyncSession, platform_name: str) -> Optional[AccountCredentialModel]:
-        stmt = select(AccountCredentialModel).where(
-            AccountCredentialModel.platform_name == platform_name.upper()
-        )
-        res = await db.execute(stmt)
-        return res.scalar_one_or_none()
-
-    @staticmethod
-    async def save_credentials(
-        db: AsyncSession,
-        platform_name: str,
-        username: str,
-        password: str,
-        cookies: Optional[str] = None,
-        notes: Optional[str] = None,
-    ) -> AccountCredentialModel:
-        stmt = select(AccountCredentialModel).where(
-            AccountCredentialModel.platform_name == platform_name.upper()
-        )
-        res = await db.execute(stmt)
-        cred = res.scalar_one_or_none()
-        if not cred:
-            cred = AccountCredentialModel(
-                id=str(uuid.uuid4()),
-                platform_name=platform_name.upper(),
-                username=username,
-                password=password,
-                cookies=cookies,
-                notes=notes,
-                is_active=True,
-                created_at=datetime.utcnow(),
-            )
-            db.add(cred)
-        else:
-            cred.username = username
-            cred.password = password
-            if cookies is not None:
-                cred.cookies = cookies
-            if notes is not None:
-                cred.notes = notes
-            cred.updated_at = datetime.utcnow()
-
-        await db.commit()
-        await db.refresh(cred)
-        return cred

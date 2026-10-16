@@ -65,11 +65,8 @@ async def test_auto_apply_policy_and_circuit_breakers():
         assert l3_data["applied"] is False
         assert l3_data["status"] == "APPROVAL_REQUIRED"
 
-        # 3. Upgrade Automation Policy to Level 4 via AI Command
-        cmd_res = await client.post(
-            "/api/ai/command",
-            json={"command": "Set automation level to 4"},
-        )
+        # 3. Upgrade Automation Policy to Level 4 via the profile
+        cmd_res = await client.put("/api/profile", json={"automation_level": 4})
         assert cmd_res.status_code == 200
         assert cmd_res.json()["automation_level"] == 4
 

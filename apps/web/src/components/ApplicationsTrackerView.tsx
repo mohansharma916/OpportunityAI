@@ -1,410 +1,340 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Send,
-  CheckCircle2,
-  Clock,
-  ExternalLink,
-  ChevronDown,
-  ChevronUp,
-  Plus,
-  Filter,
-  Search,
-  Sparkles,
-  Building,
-  FileText,
   AlertCircle,
+  CalendarClock,
   Check,
-  X,
+  Copy,
+  ExternalLink,
   Loader2,
-  Calendar,
-  Layers,
-  ArrowRight,
+  Plus,
+  RefreshCw,
+  Search,
+  Terminal,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 
-interface ApplicationsTrackerViewProps {
-  opportunities: any[];
-  onSelectApplication: (app: any) => void;
-  onRefreshData: () => void;
-}
+const STATUS_STYLE: Record<string, string> = {
+  QUEUED: 'bg-zinc-500/10 text-zinc-300 border-zinc-500/20',
+  PAUSED: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+  AWAITING_APPROVAL: 'bg-brand-500/15 text-brand-300 border-brand-500/30',
+  SUBMITTED: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
+  VIEWED: 'bg-cyan-500/10 text-cyan-200 border-cyan-500/20',
+  REPLIED: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+  INTERVIEW: 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40',
+  OFFER: 'bg-emerald-500/25 text-emerald-100 border-emerald-500/50',
+  REJECTED: 'bg-rose-500/10 text-rose-300 border-rose-500/20',
+  GHOSTED: 'bg-zinc-700/30 text-zinc-500 border-white/5',
+};
 
-export function ApplicationsTrackerView({
-  opportunities,
-  onSelectApplication,
-  onRefreshData,
-}: ApplicationsTrackerViewProps) {
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
+const label = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—');
 
-  // New Task input state per application: { [appId]: string }
-  const [newTaskInput, setNewTaskInput] = useState<{ [appId: string]: string }>({});
-  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+const emptyForm = { company: '', role: '', job_url: '', source_platform: '', apply_channel: '', post_url: '', notes: '' };
 
-  // Extract all opportunities with applications
-  const applications = opportunities
-    .filter((o: any) => o.application)
-    .map((o: any) => ({
-      ...o.application,
-      opportunity: o,
-    }));
+export function ApplicationsTrackerView() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const filteredApps = applications.filter((app) => {
-    const opp = app.opportunity || {};
-    const matchesSearch =
-      (opp.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (opp.company_name || '').toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (!matchesSearch) return false;
-    if (statusFilter === 'ALL') return true;
-    return app.status === statusFilter;
-  });
-
-  const handleStatusChange = async (appId: string, newStatus: string) => {
-    setLoadingAction(`status-${appId}`);
+  const load = async () => {
+    const params = new URLSearchParams();
+    if (statusFilter) params.set('status', statusFilter);
+    if (sourceFilter) params.set('source_platform', sourceFilter);
+    if (search) params.set('search', search);
     try {
-      await fetchApi(`/api/applications/${appId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: newStatus }),
-      });
-      onRefreshData();
+      setLoading(true);
+      const [list, st] = await Promise.all([
+        fetchApi<any[]>(`/api/tracker?${params.toString()}`),
+        fetchApi<any>('/api/tracker/stats'),
+      ]);
+      setRows(list);
+      setStats(st);
     } catch (err: any) {
-      alert(`Failed to update status: ${err.message}`);
+      setNotice(`Could not load tracker: ${err.message}`);
     } finally {
-      setLoadingAction(null);
+      setLoading(false);
     }
   };
 
-  const handleToggleTask = async (appId: string, taskId: string) => {
-    setLoadingAction(`task-${taskId}`);
+  useEffect(() => {
+    load();
+  }, [statusFilter, sourceFilter]);
+
+  const update = async (id: string, patch: Record<string, any>) => {
     try {
-      await fetchApi(`/api/applications/${appId}/tasks/${taskId}`, {
-        method: 'PUT',
-      });
-      onRefreshData();
+      await fetchApi(`/api/tracker/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+      await load();
     } catch (err: any) {
-      alert(`Failed to toggle task: ${err.message}`);
-    } finally {
-      setLoadingAction(null);
+      setNotice(`Update failed: ${err.message}`);
     }
   };
 
-  const handleAddTask = async (appId: string) => {
-    const title = (newTaskInput[appId] || '').trim();
-    if (!title) return;
-    setLoadingAction(`add-task-${appId}`);
+  const remove = async (row: any) => {
+    if (!confirm(`Remove ${row.company} — ${row.role} from the tracker?`)) return;
+    await fetchApi(`/api/tracker/${row.id}`, { method: 'DELETE' });
+    await load();
+  };
+
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(Object.entries(form).filter(([, v]) => v !== ''));
     try {
-      await fetchApi(`/api/applications/${appId}/tasks`, {
-        method: 'POST',
-        body: JSON.stringify({ title }),
-      });
-      setNewTaskInput({ ...newTaskInput, [appId]: '' });
-      onRefreshData();
+      await fetchApi('/api/tracker', { method: 'POST', body: JSON.stringify(payload) });
+      setForm(emptyForm);
+      setShowAdd(false);
+      setNotice(`Tracking ${form.company} — ${form.role}.`);
+      await load();
     } catch (err: any) {
-      alert(`Failed to add task: ${err.message}`);
-    } finally {
-      setLoadingAction(null);
+      setNotice(err.message);
     }
   };
 
-  // Metrics
-  const totalApps = applications.length;
-  const needsApproval = applications.filter((a) => a.status === 'NEEDS_APPROVAL').length;
-  const autoApplied = applications.filter((a) => a.status === 'AUTO_APPLIED' || a.submission_mode === 'AUTO').length;
-  const submitted = applications.filter((a) => a.status === 'SUBMITTED').length;
-  const interviewing = applications.filter((a) => a.status === 'INTERVIEWING').length;
+  const copyCommand = (row: any, submit: boolean) => {
+    const cmd = `python -m apps.worker.cli fill --tracker-id ${row.id}${submit ? ' --submit' : ' --keep-open'}`;
+    navigator.clipboard.writeText(cmd);
+    setCopiedId(row.id + (submit ? '-s' : ''));
+    setTimeout(() => setCopiedId(null), 1500);
+  };
+
+  const sources: string[] = stats ? Object.keys(stats.by_source || {}) : [];
+  const now = Date.now();
 
   return (
-    <div className="space-y-6">
-      {/* Header & KPI Summary */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-surface-100 to-surface-200 border border-white/10 glass-panel space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              <Send className="w-5 h-5 text-emerald-400" />
-              Application Tracker & Attached Task Pipeline
-            </h2>
-            <p className="text-xs text-zinc-400 mt-0.5 font-sans">
-              Track submission status, review packages, and manage lifecycle tasks for every opportunity.
-            </p>
+    <div className="space-y-6 pb-16">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { k: 'Tracked', v: stats?.total ?? '—' },
+          { k: 'Awaiting your approval', v: stats?.by_status?.AWAITING_APPROVAL ?? '—' },
+          { k: 'Submitted today', v: stats?.submitted_today ?? '—' },
+          { k: 'Follow-ups due', v: stats?.follow_ups_due ?? '—' },
+          { k: 'Response rate', v: stats?.response_rate != null ? `${stats.response_rate}%` : '—' },
+        ].map((s) => (
+          <div key={s.k} className="p-4 rounded-xl bg-surface-300 border border-white/5">
+            <div className="text-[11px] text-zinc-400">{s.k}</div>
+            <div className="text-xl font-bold text-white mt-1">{s.v}</div>
           </div>
-        </div>
-
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2 border-t border-white/5">
-          <div className="p-3 rounded-xl bg-surface-300/40 border border-white/5">
-            <span className="text-[10px] text-zinc-400 font-mono block">Total Tracked</span>
-            <span className="text-lg font-bold text-white font-mono">{totalApps}</span>
-          </div>
-          <div className="p-3 rounded-xl bg-surface-300/40 border border-amber-500/20">
-            <span className="text-[10px] text-amber-400 font-mono block">Needs Approval</span>
-            <span className="text-lg font-bold text-amber-300 font-mono">{needsApproval}</span>
-          </div>
-          <div className="p-3 rounded-xl bg-surface-300/40 border border-cyan-500/20">
-            <span className="text-[10px] text-cyan-400 font-mono block">Auto-Applied</span>
-            <span className="text-lg font-bold text-cyan-300 font-mono">{autoApplied}</span>
-          </div>
-          <div className="p-3 rounded-xl bg-surface-300/40 border border-emerald-500/20">
-            <span className="text-[10px] text-emerald-400 font-mono block">Submitted</span>
-            <span className="text-lg font-bold text-emerald-300 font-mono">{submitted}</span>
-          </div>
-          <div className="p-3 rounded-xl bg-surface-300/40 border border-purple-500/20">
-            <span className="text-[10px] text-purple-400 font-mono block">Interviewing</span>
-            <span className="text-lg font-bold text-purple-300 font-mono">{interviewing}</span>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {/* Status Pills */}
-        <div className="flex flex-wrap gap-1.5 p-1 bg-surface-300/60 rounded-xl border border-white/5">
-          {[
-            { id: 'ALL', label: 'All' },
-            { id: 'NEEDS_APPROVAL', label: 'Needs Approval' },
-            { id: 'AUTO_APPLIED', label: 'Auto-Applied' },
-            { id: 'SUBMITTED', label: 'Submitted' },
-            { id: 'INTERVIEWING', label: 'Interviewing' },
-            { id: 'OFFERED', label: 'Offered' },
-            { id: 'REJECTED', label: 'Rejected' },
-          ].map((pill) => (
-            <button
-              key={pill.id}
-              type="button"
-              onClick={() => setStatusFilter(pill.id)}
-              className={`px-3 py-1 text-xs font-mono rounded-lg transition-all ${
-                statusFilter === pill.id
-                  ? 'bg-brand-500 text-white font-medium shadow-sm'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              {pill.label}
-            </button>
-          ))}
-        </div>
+      {/* Worker hint */}
+      <div className="flex items-start gap-2 p-3 rounded-xl bg-black/40 border border-white/5 text-[11px] text-zinc-300">
+        <Terminal className="w-3.5 h-3.5 text-brand-400 mt-0.5 shrink-0" />
+        <span>
+          Fill everything queued in your own browser (no submit):{' '}
+          <code className="text-brand-300">python -m apps.worker.cli queue</code>. Review rows marked “Awaiting approval”,
+          then copy their submit command.
+        </span>
+      </div>
 
-        {/* Search Input */}
-        <div className="relative w-full sm:w-64">
-          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2.5" />
           <input
-            type="text"
-            placeholder="Search by company or role..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-surface-300/80 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500/50"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && load()}
+            placeholder="Search company or role, press Enter"
+            className="w-full pl-8 p-2 rounded-lg bg-surface-300 border border-white/10 text-xs text-white focus:outline-none focus:border-brand-500"
           />
         </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="p-2 rounded-lg bg-surface-300 border border-white/10 text-xs text-white"
+        >
+          <option value="">All statuses</option>
+          {(stats?.statuses || []).map((s: string) => (
+            <option key={s} value={s}>
+              {label(s)} ({stats?.by_status?.[s] ?? 0})
+            </option>
+          ))}
+        </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="p-2 rounded-lg bg-surface-300 border border-white/10 text-xs text-white"
+        >
+          <option value="">All sources</option>
+          {sources.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <button onClick={load} className="p-2 rounded-lg bg-surface-300 border border-white/10 text-zinc-300 hover:text-white">
+          <RefreshCw className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => setShowAdd((v) => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-xs font-bold text-white shadow-glow"
+        >
+          {showAdd ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+          <span>{showAdd ? 'Cancel' : 'Add application'}</span>
+        </button>
       </div>
 
-      {/* Applications Cards List */}
-      <div className="space-y-4">
-        {filteredApps.length === 0 ? (
-          <div className="p-12 text-center text-zinc-500 rounded-2xl bg-surface-300/20 border border-white/5 space-y-2">
-            <Send className="w-8 h-8 mx-auto opacity-30" />
-            <p className="text-sm font-mono">No applications matching current filters.</p>
-            <span className="text-xs text-zinc-600 block">
-              Discover opportunities and click "Prepare Application" or run the Autonomous Crawler to populate your pipeline.
-            </span>
-          </div>
-        ) : (
-          filteredApps.map((app: any) => {
-            const opp = app.opportunity || {};
-            const isExpanded = expandedAppId === app.id;
-            const tasks = app.tasks || [];
-            const completedTasks = tasks.filter((t: any) => t.status === 'COMPLETED').length;
-            const totalTasks = tasks.length;
-            const score = opp.matching_score?.overall_match_score || 0;
+      {notice && (
+        <div className="flex items-center justify-between p-3 rounded-lg bg-surface-300 border border-white/10 text-xs text-zinc-200">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} className="text-zinc-500 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
-            const statusColors: Record<string, string> = {
-              NEEDS_APPROVAL: 'bg-amber-950/40 text-amber-300 border-amber-500/30',
-              AUTO_APPLIED: 'bg-cyan-950/40 text-cyan-300 border-cyan-500/30',
-              SUBMITTED: 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30',
-              INTERVIEWING: 'bg-purple-950/40 text-purple-300 border-purple-500/30',
-              OFFERED: 'bg-emerald-500/20 text-emerald-300 border-emerald-400',
-              REJECTED: 'bg-rose-950/40 text-rose-300 border-rose-500/30',
-              PREPARED: 'bg-blue-950/40 text-blue-300 border-blue-500/30',
-            };
+      {showAdd && (
+        <form onSubmit={create} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 rounded-xl bg-surface-300 border border-white/10">
+          {[
+            ['company', 'Company *'],
+            ['role', 'Role *'],
+            ['job_url', 'Job URL'],
+            ['source_platform', 'Source (e.g. We Work Remotely, LinkedIn post)'],
+            ['apply_channel', 'Channel (e.g. GREENHOUSE, EMAIL, LINKEDIN_DM)'],
+            ['post_url', 'LinkedIn post URL'],
+          ].map(([k, l]) => (
+            <input
+              key={k}
+              required={k === 'company' || k === 'role'}
+              placeholder={l}
+              value={(form as any)[k]}
+              onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+              className="p-2 rounded-lg bg-surface-200 border border-white/10 text-xs text-white focus:outline-none focus:border-brand-500"
+            />
+          ))}
+          <input
+            placeholder="Notes"
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            className="md:col-span-2 p-2 rounded-lg bg-surface-200 border border-white/10 text-xs text-white focus:outline-none focus:border-brand-500"
+          />
+          <button type="submit" className="px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-xs font-bold text-white">
+            Track it
+          </button>
+        </form>
+      )}
 
-            return (
-              <div
-                key={app.id}
-                className="rounded-2xl bg-surface-300/40 border border-white/10 hover:border-brand-500/30 transition-all overflow-hidden shadow-sm"
-              >
-                {/* Main Row */}
-                <div className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-bold text-white hover:text-brand-300 transition-colors">
-                        {opp.title}
-                      </span>
-                      <span className="text-xs text-zinc-400 font-medium">
-                        at {opp.company_name}
-                      </span>
-                      {score > 0 && (
-                        <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-800/40">
-                          {score.toFixed(0)}% Match
-                        </span>
+      {/* Table */}
+      <div className="rounded-2xl border border-white/5 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-surface-300 text-zinc-400 text-[11px]">
+            <tr>
+              <th className="text-left font-medium p-3">Company / role</th>
+              <th className="text-left font-medium p-3">Source</th>
+              <th className="text-right font-medium p-3">Score</th>
+              <th className="text-left font-medium p-3">Status</th>
+              <th className="text-left font-medium p-3">Submitted</th>
+              <th className="text-left font-medium p-3">Next action</th>
+              <th className="text-left font-medium p-3">Worker</th>
+              <th className="p-3" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {loading && rows.length === 0 && (
+              <tr>
+                <td colSpan={8} className="p-8 text-center text-zinc-500">
+                  <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> Loading...
+                </td>
+              </tr>
+            )}
+            {!loading && rows.length === 0 && (
+              <tr>
+                <td colSpan={8} className="p-8 text-center text-zinc-500">
+                  Nothing tracked yet. Queue roles from Jobs, track LinkedIn hiring posts, or add one by hand.
+                </td>
+              </tr>
+            )}
+            {rows.map((r) => {
+              const overdue = r.next_action_due && new Date(r.next_action_due).getTime() <= now;
+              return (
+                <tr key={r.id} className="bg-surface-200/40 hover:bg-white/[0.02] align-top">
+                  <td className="p-3">
+                    <div className="font-semibold text-white">{r.company}</div>
+                    <div className="text-zinc-400 flex items-center gap-1">
+                      {r.role}
+                      {r.job_url && (
+                        <a href={r.job_url} target="_blank" rel="noreferrer" className="text-brand-400 hover:text-brand-300">
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
                       )}
-                      <span className="text-[10px] font-mono text-zinc-400 bg-white/5 px-2 py-0.5 rounded">
-                        {opp.source || 'WEB'}
-                      </span>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400 font-mono">
-                      <span>Created: {new Date(app.created_at).toLocaleDateString()}</span>
-                      {app.submitted_at && (
-                        <span className="text-emerald-400">
-                          Submitted: {new Date(app.submitted_at).toLocaleDateString()}
-                        </span>
-                      )}
-                      <span>Mode: {app.submission_mode}</span>
-                      {totalTasks > 0 && (
-                        <span className="text-cyan-400">
-                          Tasks: {completedTasks}/{totalTasks} Done
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Actions & Status Selector */}
-                  <div className="flex flex-wrap items-center gap-3">
-                    {/* Status Dropdown */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-zinc-400 font-mono">Status:</span>
-                      <select
-                        value={app.status}
-                        disabled={loadingAction === `status-${app.id}`}
-                        onChange={(e) => handleStatusChange(app.id, e.target.value)}
-                        className={`text-xs font-mono font-semibold rounded-lg px-2.5 py-1.5 border focus:outline-none cursor-pointer ${
-                          statusColors[app.status] || 'bg-surface-400 text-white border-white/10'
-                        }`}
-                      >
-                        <option value="NEEDS_APPROVAL">Needs Approval</option>
-                        <option value="AUTO_APPLIED">Auto-Applied</option>
-                        <option value="SUBMITTED">Submitted</option>
-                        <option value="INTERVIEWING">Interviewing</option>
-                        <option value="OFFERED">Offered</option>
-                        <option value="REJECTED">Rejected</option>
-                      </select>
-                    </div>
-
-                    {/* Review Button */}
-                    <button
-                      type="button"
-                      onClick={() => onSelectApplication(app)}
-                      className="px-3 py-1.5 text-xs font-mono bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/40 rounded-lg flex items-center gap-1 transition-colors"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Review
-                    </button>
-
-                    {/* External Link */}
-                    {opp.url && (
-                      <a
-                        href={opp.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-2 text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/5 transition-colors"
-                        title="Open posting"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
+                    {r.last_error && (
+                      <div className="mt-1 text-[10px] text-amber-300 flex items-start gap-1 max-w-sm">
+                        <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" /> {r.last_error}
+                      </div>
+                    )}
+                  </td>
+                  <td className="p-3 text-zinc-300">
+                    {r.source_platform}
+                    {r.apply_channel && <div className="text-[10px] text-zinc-500 font-mono">{r.apply_channel}</div>}
+                    {r.post_url && (
+                      <a href={r.post_url} target="_blank" rel="noreferrer" className="text-[10px] text-brand-400 hover:text-brand-300">
+                        post
                       </a>
                     )}
-
-                    {/* Expand Tasks Toggle */}
-                    <button
-                      type="button"
-                      onClick={() => setExpandedAppId(isExpanded ? null : app.id)}
-                      className="flex items-center gap-1 text-xs font-mono text-zinc-400 hover:text-white px-2 py-1.5 rounded bg-white/5"
+                  </td>
+                  <td className="p-3 text-right font-mono text-zinc-300">{r.match_score != null ? Math.round(r.match_score) : '—'}</td>
+                  <td className="p-3">
+                    <select
+                      value={r.status}
+                      onChange={(e) => update(r.id, { status: e.target.value })}
+                      className={`px-2 py-1 rounded-md border text-[11px] font-semibold bg-transparent ${STATUS_STYLE[r.status] || ''}`}
                     >
-                      <span>Tasks</span>
-                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Attached Tasks Checklist Panel */}
-                {isExpanded && (
-                  <div className="px-5 pb-5 pt-3 border-t border-white/5 bg-surface-400/30 space-y-3 animate-in fade-in duration-150">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-zinc-300 font-mono flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-brand-400" />
-                        Attached Pipeline Tasks ({completedTasks}/{totalTasks} Completed)
-                      </span>
-                    </div>
-
-                    {/* Tasks List */}
-                    <div className="space-y-1.5">
-                      {tasks.map((task: any) => {
-                        const isDone = task.status === 'COMPLETED';
-                        return (
-                          <div
-                            key={task.id}
-                            onClick={() => handleToggleTask(app.id, task.id)}
-                            className={`p-2.5 rounded-xl border text-xs font-mono flex items-center justify-between cursor-pointer transition-all ${
-                              isDone
-                                ? 'bg-emerald-950/20 border-emerald-500/20 text-zinc-300'
-                                : 'bg-surface-300/50 border-white/5 text-zinc-400 hover:border-white/10'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <div
-                                className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
-                                  isDone
-                                    ? 'bg-emerald-500 border-emerald-400 text-white'
-                                    : 'border-white/20 bg-surface-400'
-                                }`}
-                              >
-                                {isDone && <Check className="w-3 h-3 stroke-[3]" />}
-                              </div>
-                              <span className={isDone ? 'line-through text-zinc-400' : 'text-zinc-200'}>
-                                {task.title}
-                              </span>
-                            </div>
-
-                            {task.completed_at && (
-                              <span className="text-[10px] text-zinc-500">
-                                {task.completed_at}
-                              </span>
-                            )}
+                      {(stats?.statuses || [r.status]).map((s: string) => (
+                        <option key={s} value={s} className="bg-surface-300 text-white">
+                          {label(s)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="p-3 text-zinc-300">{day(r.submitted_at)}</td>
+                  <td className="p-3">
+                    {r.next_action ? (
+                      <div className={overdue ? 'text-amber-300' : 'text-zinc-300'}>
+                        <div>{r.next_action}</div>
+                        {r.next_action_due && (
+                          <div className="text-[10px] flex items-center gap-1">
+                            <CalendarClock className="w-3 h-3" /> {day(r.next_action_due)}
                           </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* Add Custom Task Input */}
-                    <div className="flex items-center gap-2 pt-2 border-t border-white/5">
-                      <input
-                        type="text"
-                        placeholder="Add custom task (e.g. Schedule screening call with tech lead)..."
-                        value={newTaskInput[app.id] || ''}
-                        onChange={(e) =>
-                          setNewTaskInput({ ...newTaskInput, [app.id]: e.target.value })
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddTask(app.id);
-                          }
-                        }}
-                        className="flex-1 bg-surface-400 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-brand-500/50"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleAddTask(app.id)}
-                        className="text-xs font-mono bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
-                      >
-                        <Plus className="w-3 h-3" /> Add Task
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-zinc-600">—</span>
+                    )}
+                  </td>
+                  <td className="p-3 space-y-1">
+                    {r.job_url && ['QUEUED', 'PAUSED'].includes(r.status) && (
+                      <button onClick={() => copyCommand(r, false)} className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white">
+                        {copiedId === r.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />} Fill command
                       </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+                    )}
+                    {r.status === 'AWAITING_APPROVAL' && (
+                      <button onClick={() => copyCommand(r, true)} className="flex items-center gap-1 text-[11px] text-brand-300 hover:text-brand-200 font-semibold">
+                        {copiedId === `${r.id}-s` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />} Approve: submit command
+                      </button>
+                    )}
+                    {r.evidence?.length > 0 && <div className="text-[10px] text-zinc-500">{r.evidence.length} screenshot(s)</div>}
+                  </td>
+                  <td className="p-3">
+                    <button onClick={() => remove(r)} className="text-zinc-500 hover:text-rose-400">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

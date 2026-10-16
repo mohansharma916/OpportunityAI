@@ -44,3 +44,22 @@ async def init_db() -> None:
     import apps.api.models  # noqa: F401 - Ensure all models are registered
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_purge_stored_credentials)
+
+
+def _purge_stored_credentials(sync_conn) -> None:
+    """
+    Logins now live only in the candidate's own browser profile.
+    Drop any passwords / session cookies that older versions stored in the database.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(sync_conn)
+    tables = inspector.get_table_names()
+    if "account_credentials" in tables:
+        sync_conn.execute(text("DROP TABLE account_credentials"))
+    if "scraping_platforms" in tables:
+        columns = {c["name"] for c in inspector.get_columns("scraping_platforms")}
+        for col in ("auth_password", "auth_username"):
+            if col in columns:
+                sync_conn.execute(text(f"ALTER TABLE scraping_platforms DROP COLUMN {col}"))

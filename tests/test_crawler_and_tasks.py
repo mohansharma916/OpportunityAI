@@ -1,5 +1,5 @@
 """
-OpportunityOS — Autonomous Crawler & Application Lifecycle Task Tests
+OpportunityOS — Application Lifecycle Task Tests
 """
 
 import pytest
@@ -23,7 +23,7 @@ async def prepare_database():
 
 
 @pytest.mark.asyncio
-async def test_crawler_execution_and_application_lifecycle():
+async def test_profile_and_application_lifecycle():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         # 1. Update candidate profile with specific preferences and currency
@@ -57,31 +57,7 @@ async def test_crawler_execution_and_application_lifecycle():
         assert skill_res.json()["skill_name"] == "FastAPI"
         assert skill_res.json()["experience_years"] == 5.0
 
-        # 3. Trigger autonomous crawler with custom limits (10 mins, max 2 apps)
-        crawl_res = await client.post(
-            "/api/crawler/run",
-            json={
-                "max_duration_minutes": 10,
-                "max_applications": 2,
-                "min_match_score": 50.0,
-                "target_platforms": ["arbeitnow", "jobicy", "github", "hackernews"],
-                "opportunity_types": ["FULL_TIME", "REMOTE", "CONTRACT_PART_TIME", "OPEN_SOURCE_CONTRIBUTION"],
-                "auto_apply_enabled": True,
-            },
-        )
-        assert crawl_res.status_code == 200
-        crawl_data = crawl_res.json()
-        assert "session_id" in crawl_data
-        assert "summary_text" in crawl_data
-        assert len(crawl_data["execution_logs"]) > 0
-
-        # 4. Check crawler status endpoint
-        status_res = await client.get("/api/crawler/status")
-        assert status_res.status_code == 200
-        status_data = status_res.json()
-        assert status_data["latest_session"] is not None
-
-        # 5. Check opportunities and applications
+        # 3. Check opportunities and applications
         opps_res = await client.get("/api/opportunities")
         assert opps_res.status_code == 200
         opps = opps_res.json()
@@ -102,7 +78,7 @@ async def test_crawler_execution_and_application_lifecycle():
         # Verify default lifecycle tasks are attached
         assert len(app_data.get("tasks", [])) >= 4
 
-        # 6. Add custom lifecycle task
+        # 4. Add custom lifecycle task
         task_res = await client.post(
             f"/api/applications/{app_id}/tasks",
             json={
@@ -113,7 +89,7 @@ async def test_crawler_execution_and_application_lifecycle():
         updated_tasks = task_res.json()
         assert any(t["title"] == "Prepare portfolio live demo link" for t in updated_tasks)
 
-        # 7. Toggle completion of the newly added task (initial status PENDING -> COMPLETED)
+        # 5. Toggle completion of the newly added task (initial status PENDING -> COMPLETED)
         target_task_id = updated_tasks[-1]["id"]
         toggle_res = await client.put(f"/api/applications/{app_id}/tasks/{target_task_id}")
         assert toggle_res.status_code == 200
@@ -121,28 +97,10 @@ async def test_crawler_execution_and_application_lifecycle():
         target_task = next(t for t in toggled_tasks if t["id"] == target_task_id)
         assert target_task["status"] == "COMPLETED"
 
-        # 8. Update application status
+        # 6. Update application status
         status_update = await client.put(
             f"/api/applications/{app_id}/status",
             json={"status": "INTERVIEWING"},
         )
         assert status_update.status_code == 200
         assert status_update.json()["status"] == "INTERVIEWING"
-
-        # 9. Verify autonomous schedule creation
-        sched_res = await client.post(
-            "/api/crawler/schedule",
-            json={
-                "interval_hours": 6,
-                "max_duration_minutes": 15,
-                "max_applications": 5,
-                "min_match_score": 75.0,
-                "target_platforms": ["arbeitnow", "jobicy"],
-                "opportunity_types": ["REMOTE", "CONTRACT_PART_TIME"],
-                "auto_apply_enabled": True,
-            },
-        )
-        assert sched_res.status_code == 200
-        sched_data = sched_res.json()
-        assert sched_data["interval_hours"] == 6
-        assert sched_data["is_active"] is True

@@ -60,19 +60,11 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
   const [newPlatformUrl, setNewPlatformUrl] = useState('');
   const [newPlatformCategory, setNewPlatformCategory] = useState('JOB_BOARD');
   const [newRequiresAuth, setNewRequiresAuth] = useState(false);
-  const [newAuthUsername, setNewAuthUsername] = useState('');
-  const [newAuthPassword, setNewAuthPassword] = useState('');
   const [newAuthNotes, setNewAuthNotes] = useState('');
 
-  // Human Apply Modal
-  const [selectedOppForApply, setSelectedOppForApply] = useState<any>(null);
-  const [applyUserId, setApplyUserId] = useState('');
-  const [applyPassword, setApplyPassword] = useState('');
-  const [isExecutingApply, setIsExecutingApply] = useState(false);
-  const [applyLogs, setApplyLogs] = useState<any[]>([]);
-  const [applyConfirmation, setApplyConfirmation] = useState<string | null>(null);
+  // Apply queue
+  const [queueingOppId, setQueueingOppId] = useState<string | null>(null);
 
-  // Notification Banner
   const [notification, setNotification] = useState<string | null>(null);
 
   // Initial Load
@@ -150,8 +142,6 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
           url: newPlatformUrl,
           category: newPlatformCategory,
           requires_auth: newRequiresAuth,
-          auth_username: newRequiresAuth ? newAuthUsername : null,
-          auth_password: newRequiresAuth ? newAuthPassword : null,
           auth_notes: newAuthNotes,
         }),
       });
@@ -159,8 +149,6 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
       setShowAddPlatformModal(false);
       setNewPlatformName('');
       setNewPlatformUrl('');
-      setNewAuthUsername('');
-      setNewAuthPassword('');
       setNewAuthNotes('');
       setNewRequiresAuth(false);
       setNotification(`Platform '${newPlatformName}' added to active scraping list.`);
@@ -242,50 +230,17 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
     }
   };
 
-  // Open Human Apply Modal
-  const handleOpenHumanApply = (opp: any) => {
-    setSelectedOppForApply(opp);
-    setApplyLogs([]);
-    setApplyConfirmation(null);
-
-    // Check if platform has saved username
-    const matchingPlatform = platforms.find((p) => p.name.toLowerCase() === opp.source?.toLowerCase());
-    if (matchingPlatform && matchingPlatform.auth_username) {
-      setApplyUserId(matchingPlatform.auth_username);
-    } else if (profile?.email) {
-      setApplyUserId(profile.email);
-    } else {
-      setApplyUserId('');
-    }
-    setApplyPassword('');
-  };
-
-  // Execute Human Apply
-  const handleExecuteHumanApply = async () => {
-    if (!selectedOppForApply) return;
+  // Queue in the application tracker; the worker fills it in the candidate's browser
+  const handleQueueApply = async (opp: any) => {
     try {
-      setIsExecutingApply(true);
-      setApplyLogs([
-        { step: 'INITIALIZING', message: 'Launching stealth browser with human emulation hooks...', status: 'INFO' },
-      ]);
-
-      const res = await fetchApi<any>(`/api/opportunities/${selectedOppForApply.id}/human-apply`, {
-        method: 'POST',
-        body: JSON.stringify({
-          user_id: applyUserId || null,
-          password: applyPassword || null,
-        }),
-      });
-
-      if (res && res.steps) {
-        setApplyLogs(res.steps);
-        setApplyConfirmation(res.confirmation_reference);
-        await loadDateGroupedOpportunities();
-      }
-    } catch (err) {
-      console.error('Failed human apply:', err);
+      setQueueingOppId(opp.id);
+      await fetchApi<any>(`/api/opportunities/${opp.id}/human-apply`, { method: 'POST' });
+      setNotification(`Queued ${opp.company_name} — ${opp.title}. Nothing is submitted until you approve it.`);
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      setNotification(msg.includes('Already tracked') ? `${opp.company_name} — ${opp.title} is already in your tracker.` : `Could not queue: ${msg}`);
     } finally {
-      setIsExecutingApply(false);
+      setQueueingOppId(null);
     }
   };
 
@@ -325,7 +280,7 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
           </h1>
           <p className="text-xs text-zinc-400 mt-1 max-w-2xl leading-relaxed">
             Manage platforms (User & AI-added), scrape opportunities across remote boards & GitHub bounties,
-            track application status by Date, and submit applications with human-like browser automation.
+            track application status by Date, and queue roles for the apply worker (you approve every submit).
           </p>
         </div>
 
@@ -377,7 +332,7 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
             </h2>
           </div>
           <span className="text-[11px] text-zinc-400">
-            User-configured & AI-discovered sources with credential support
+            User-configured & AI-discovered sources. Logins stay in your browser.
           </span>
         </div>
 
@@ -452,7 +407,7 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
                           {p.requires_auth ? (
                             <span className="text-amber-400 flex items-center gap-1">
                               <Lock className="w-2.5 h-2.5" />
-                              {p.auth_username ? 'Credentials Stored' : 'Requires Login'}
+                              Log in via worker
                             </span>
                           ) : (
                             <span className="text-zinc-400">Public Access</span>
@@ -507,7 +462,7 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
               </h2>
             </div>
             <p className="text-[11px] text-zinc-400 mt-0.5">
-              Review scraped postings by date, maintain candidate status, and apply with human automation.
+              Review scraped postings by date, maintain candidate status, and queue roles to apply.
             </p>
           </div>
 
@@ -654,7 +609,7 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
                     )}
                   </div>
 
-                  {/* Right Column: User Status Selector & Human Apply Button */}
+                  {/* Right Column: User Status Selector & Queue to Apply Button */}
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
                     {/* User Maintained Status Selector */}
                     <div className="space-y-1">
@@ -695,11 +650,16 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
                         </div>
                       ) : (
                         <button
-                          onClick={() => handleOpenHumanApply(opp)}
-                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white shadow-glow transition-all"
+                          onClick={() => handleQueueApply(opp)}
+                          disabled={queueingOppId === opp.id}
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white shadow-glow transition-all disabled:opacity-50"
                         >
-                          <Play className="w-3 h-3 fill-white" />
-                          <span>Human Apply</span>
+                          {queueingOppId === opp.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Play className="w-3 h-3 fill-white" />
+                          )}
+                          <span>Queue to Apply</span>
                         </button>
                       )}
                     </div>
@@ -776,32 +736,16 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
                   />
                   <span className="font-bold flex items-center gap-1">
                     <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                    This platform requires login / user credentials to apply
+                    This platform requires a login to apply
                   </span>
                 </label>
 
                 {newRequiresAuth && (
                   <div className="space-y-3 pt-2">
-                    <div>
-                      <label className="block text-zinc-400 text-[11px] mb-1">User ID / Username / Email</label>
-                      <input
-                        type="text"
-                        placeholder="candidate@email.com or username"
-                        value={newAuthUsername}
-                        onChange={(e) => setNewAuthUsername(e.target.value)}
-                        className="w-full p-2 rounded bg-surface-300 border border-white/10 text-white focus:outline-none focus:border-brand-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-zinc-400 text-[11px] mb-1">Password</label>
-                      <input
-                        type="password"
-                        placeholder="••••••••••••"
-                        value={newAuthPassword}
-                        onChange={(e) => setNewAuthPassword(e.target.value)}
-                        className="w-full p-2 rounded bg-surface-300 border border-white/10 text-white focus:outline-none focus:border-brand-500"
-                      />
-                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      Passwords are never stored. Sign in once in the automation browser with{' '}
+                      <code className="text-brand-300">python -m apps.worker.cli login --url {newPlatformUrl || '<url>'}</code>
+                    </p>
                     <div>
                       <label className="block text-zinc-400 text-[11px] mb-1">Automation Notes (Optional)</label>
                       <input
@@ -836,140 +780,6 @@ export function JobScraperView({ onRefreshAllData, profile }: JobScraperViewProp
         </div>
       )}
 
-      {/* MODAL 2: Human-Like Automation Runner Console */}
-      {selectedOppForApply && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-surface-300 rounded-2xl border border-white/10 shadow-2xl p-6 space-y-4 animate-in zoom-in-95">
-            {/* Header */}
-            <div className="flex items-start justify-between border-b border-white/5 pb-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <h3 className="text-sm font-bold text-white">Human-Like Application Automation</h3>
-                </div>
-                <p className="text-xs text-zinc-400 mt-0.5">
-                  Submitting to <span className="text-brand-300 font-semibold">{selectedOppForApply.company_name}</span> ({selectedOppForApply.title})
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedOppForApply(null)}
-                className="text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Credentials & Human Simulation Configuration */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl bg-surface-400/50 border border-white/5 text-xs">
-              <div>
-                <label className="block text-zinc-300 font-medium mb-1 flex items-center gap-1">
-                  <KeyRound className="w-3.5 h-3.5 text-brand-400" /> Platform User ID / Email
-                </label>
-                <input
-                  type="text"
-                  value={applyUserId}
-                  onChange={(e) => setApplyUserId(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full p-2 rounded bg-surface-300 border border-white/10 text-white focus:outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-zinc-300 font-medium mb-1 flex items-center gap-1">
-                  <Lock className="w-3.5 h-3.5 text-brand-400" /> Platform Password
-                </label>
-                <input
-                  type="password"
-                  value={applyPassword}
-                  onChange={(e) => setApplyPassword(e.target.value)}
-                  placeholder="•••••••••••• (if required)"
-                  className="w-full p-2 rounded bg-surface-300 border border-white/10 text-white focus:outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div className="col-span-1 md:col-span-2 flex flex-wrap items-center gap-4 text-[11px] text-zinc-400 pt-2 border-t border-white/5">
-                <span className="flex items-center gap-1 text-emerald-400">
-                  <CheckCircle2 className="w-3 h-3" /> Human typing cadence (45-65 WPM)
-                </span>
-                <span className="flex items-center gap-1 text-emerald-400">
-                  <CheckCircle2 className="w-3 h-3" /> Natural micro-pauses (1.2s - 2.5s)
-                </span>
-                <span className="flex items-center gap-1 text-emerald-400">
-                  <CheckCircle2 className="w-3 h-3" /> Auto-attaches Tailored Resume PDF
-                </span>
-              </div>
-            </div>
-
-            {/* Live Human Simulation Execution Terminal */}
-            <div className="p-4 rounded-xl bg-black/90 border border-white/10 font-mono text-[11px] text-zinc-300 space-y-2 max-h-64 overflow-y-auto">
-              <div className="flex items-center justify-between text-zinc-500 text-[10px] pb-1 border-b border-white/10">
-                <span className="flex items-center gap-1.5 text-zinc-400 font-bold">
-                  <Terminal className="w-3 h-3" /> BROWSER AUTOMATION CONSOLE
-                </span>
-                <span>STATUS: {isExecutingApply ? 'SIMULATING_HUMAN_ACTIONS' : applyConfirmation ? 'SUBMITTED' : 'STANDBY'}</span>
-              </div>
-
-              {applyLogs.length === 0 ? (
-                <div className="text-zinc-600 italic py-4 text-center">
-                  Click 'Start Human-Like Automation' to launch browser runner and submit application.
-                </div>
-              ) : (
-                <div className="space-y-1.5 pt-1">
-                  {applyLogs.map((log, idx) => (
-                    <div key={idx} className="flex items-start gap-2 animate-in fade-in">
-                      <span className="text-zinc-500 shrink-0">{log.time || 'NOW'}</span>
-                      <span className="text-cyan-400 font-semibold shrink-0">[{log.step}]</span>
-                      <span className="text-zinc-200">{log.message}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Confirmation Banner */}
-            {applyConfirmation && (
-              <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  Submission Confirmed! Ref: #{applyConfirmation}
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-200">
-                  Status: APPLIED
-                </span>
-              </div>
-            )}
-
-            {/* Modal Actions */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setSelectedOppForApply(null)}
-                className="px-4 py-2 rounded-lg text-xs font-medium text-zinc-400 hover:text-white"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={handleExecuteHumanApply}
-                disabled={isExecutingApply}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-brand-600 to-cyan-500 hover:from-brand-500 hover:to-cyan-400 text-white shadow-glow transition-all disabled:opacity-50"
-              >
-                {isExecutingApply ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Emulating Human Submission...</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3.5 h-3.5 fill-white" />
-                    <span>Start Human-Like Automation</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

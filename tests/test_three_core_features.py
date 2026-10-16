@@ -1,8 +1,7 @@
 """
-OpportunityOS — Test Suite for the Three Core Features
-1. Job / Project Web Scraper Tool (Platforms list, User & AI additions, Date grouping, User Status tracking, Human-like apply with credentials)
-2. LinkedIn Scraper & Selenium-Style Connection Automation (Jobs scraping, Selenium bot execution, Post publisher, Credentials vault)
-3. Automated Outreach & Networking CRM (Recruiter directory, 3-step cadences, AI outreach message generation, Sequence advancement)
+OpportunityOS — Test Suite for the Core Features
+1. Job discovery (Platforms list, User & AI additions, Date grouping, User status tracking, Queue to apply)
+2. LinkedIn Post Studio (Post publisher, Post analysis, Human post synthesis)
 """
 
 import pytest
@@ -24,14 +23,12 @@ async def test_feature_1_job_scraper_and_human_apply():
         platform_names = [p["name"] for p in platforms]
         assert any("Arbeitnow" in n for n in platform_names)
 
-        # 2. User adds a custom platform with credentials
+        # 2. User adds a custom platform (logins live in the browser profile, never in the API)
         create_payload = {
             "name": "Wellfound Custom Startups",
             "url": "https://wellfound.com/jobs/startups",
             "category": "STARTUPS",
             "requires_auth": True,
-            "auth_username": "candidate@opportunity.ai",
-            "auth_password": "supersecretpassword123",
             "auth_notes": "Requires 2FA verification code.",
             "crawl_frequency_hours": 8,
         }
@@ -81,57 +78,30 @@ async def test_feature_1_job_scraper_and_human_apply():
         assert res_status.status_code == 200
         assert res_status.json()["status"] == "REVIEWING"
 
-        # 7. Apply on behalf of user with human-like automation
-        apply_payload = {
-            "user_id": "candidate@opportunity.ai",
-            "password": "supersecretpassword123",
-        }
-        res_apply = await client.post(f"/api/opportunities/{opp_id}/human-apply", json=apply_payload)
+        # 7. Queue the application in the tracker (the worker fills it; nothing is submitted here)
+        res_apply = await client.post(f"/api/opportunities/{opp_id}/human-apply")
         assert res_apply.status_code == 200
         apply_result = res_apply.json()
         assert apply_result["success"] is True
-        assert apply_result["status"] == "APPLIED"
-        assert "confirmation_reference" in apply_result
-        assert len(apply_result["steps"]) >= 5
+        assert apply_result["status"] == "QUEUED"
+        assert apply_result["application"]["opportunity_id"] == opp_id
+
+        # 8. Queuing the same role again is rejected as a duplicate
+        res_dup = await client.post(f"/api/opportunities/{opp_id}/human-apply")
+        assert res_dup.status_code == 409
+
+        # 9. No credential fields are exposed for platforms
+        assert all("has_password" not in p for p in (await client.get("/api/platforms")).json())
 
 
 @pytest.mark.asyncio
-async def test_feature_2_linkedin_scraper_and_selenium_automation():
+async def test_feature_2_linkedin_post_studio():
     await init_db()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Scrape LinkedIn Opportunities
-        res_opps = await client.post("/api/linkedin/scrape-opportunities")
-        assert res_opps.status_code == 200
-        opps_data = res_opps.json()
-        assert opps_data["success"] is True
-        assert len(opps_data["opportunities"]) >= 1
-
-        # 2. Save and Retrieve LinkedIn Credentials
-        creds_payload = {
-            "username": "dev.engineer@example.com",
-            "password": "linkedinpassword",
-            "cookies": "li_at=AQEDAR05189XYZ...",
-        }
-        res_save_cred = await client.post("/api/linkedin/credentials", json=creds_payload)
-        assert res_save_cred.status_code == 200
-
-        res_get_cred = await client.get("/api/linkedin/credentials")
-        assert res_get_cred.status_code == 200
-        assert res_get_cred.json()["username"] == "dev.engineer@example.com"
-
-        # 3. Run Selenium-Style Connection Automation Bot
-        conn_payload = {
-            "count": 2,
-            "target_role": "VP of Engineering",
-            "note_template": "Hi {name}, would love to connect regarding distributed systems!",
-        }
-        res_bot = await client.post("/api/linkedin/automate-connections", json=conn_payload)
-        assert res_bot.status_code == 200
-        bot_data = res_bot.json()
-        assert bot_data["success"] is True
-        assert bot_data["connected_count"] >= 1
-        assert len(bot_data["logs"]) >= 4
+        # 1. Removed: bulk scraping, connection bot and the credentials vault
+        assert (await client.post("/api/linkedin/automate-connections", json={"count": 1})).status_code in (404, 405)
+        assert (await client.get("/api/linkedin/credentials")).status_code in (404, 405)
 
         # 4. Generate & Publish Post to LinkedIn
         post_gen = await client.post(
@@ -187,52 +157,3 @@ async def test_feature_2_linkedin_scraper_and_selenium_automation():
         assert len(lib_data) >= 1
         assert lib_data[0]["id"] == scraped_id
         assert lib_data[0]["linked_draft"] is not None
-
-
-@pytest.mark.asyncio
-async def test_feature_3_crm_outreach_and_cadences():
-    await init_db()
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Create Recruiter Contact
-        contact_payload = {
-            "company_name": "CloudScale Systems",
-            "full_name": "Elena Rostova",
-            "role": "Director of Technical Recruiting",
-            "email": "elena.rostova@cloudscale.example.com",
-            "linkedin_url": "https://linkedin.com/in/elena-rostova",
-            "notes": "Hiring for Staff Infrastructure Engineers.",
-        }
-        res_contact = await client.post("/api/crm/contacts", json=contact_payload)
-        assert res_contact.status_code == 200
-        contact = res_contact.json()
-        contact_id = contact["id"]
-
-        # 2. Generate Personalized AI Outreach Message
-        res_outreach = await client.post(
-            f"/api/crm/contacts/{contact_id}/generate-outreach",
-            json={"tone": "TECHNICAL"},
-        )
-        assert res_outreach.status_code == 200
-        outreach_data = res_outreach.json()
-        assert "subject" in outreach_data
-        assert "body" in outreach_data
-        assert "CloudScale Systems" in outreach_data["subject"]
-
-        # 3. Create 3-Step Automated Outreach Sequence
-        seq_payload = {
-            "opportunity_id": "general-opp",
-            "contact_id": contact_id,
-        }
-        res_seq = await client.post("/api/crm/sequences", json=seq_payload)
-        assert res_seq.status_code == 200
-        seq = res_seq.json()
-        seq_id = seq["id"]
-        assert len(seq["messages"]) == 3
-
-        # 4. Advance Sequence (Dispatch Step 1)
-        res_adv = await client.post(f"/api/crm/sequences/{seq_id}/advance")
-        assert res_adv.status_code == 200
-        adv_data = res_adv.json()
-        assert adv_data["success"] is True
-        assert adv_data["dispatched_step"] == 1

@@ -103,31 +103,3 @@ async def test_full_opportunity_vertical_slice():
         actions = [a["action"] for a in activities]
         assert "APPLICATION_SUBMITTED" in actions
         assert "APPLICATION_PREPARED" in actions
-
-        # 9. Verify Analytics & Funnel
-        analytics_res = await client.get("/api/analytics")
-        assert analytics_res.status_code == 200
-        analytics = analytics_res.json()
-        assert analytics["total_discovered"] >= 4
-        assert analytics["applications_submitted"] >= 1
-        assert len(analytics["funnel"]) == 6
-
-        # 10. AI Command Bar execution
-        cmd_res = await client.post(
-            "/api/ai/command",
-            json={"command": "Increase minimum contract rate to $95/hour"},
-        )
-        assert cmd_res.status_code == 200
-        assert cmd_res.json()["new_value"] == 95.0
-
-        # 11. Daily AI Briefing
-        brief_res = await client.get("/api/briefing")
-        assert brief_res.status_code == 200
-        briefing = brief_res.json()
-        assert "Good morning" in briefing["summary_text"]
-        assert briefing["opportunities_discovered_count"] >= 4
-
-        # Verify dynamic candidate name in briefing
-        custom_brief = await client.get("/api/briefing?user_name=Sarah+Connor")
-        assert custom_brief.status_code == 200
-        assert "Good morning Sarah." in custom_brief.json()["summary_text"]

@@ -258,35 +258,6 @@ class ContactModel(Base):
     opportunity = relationship("OpportunityModel", back_populates="contacts")
 
 
-class OutreachSequenceModel(Base):
-    __tablename__ = "outreach_sequences"
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    opportunity_id = Column(String(36), nullable=False)
-    contact_id = Column(String(36), ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False)
-    status = Column(String(50), default="ACTIVE")
-    current_step = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    messages = relationship("OutreachMessageModel", back_populates="sequence", cascade="all, delete-orphan")
-
-
-class OutreachMessageModel(Base):
-    __tablename__ = "outreach_messages"
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    sequence_id = Column(String(36), ForeignKey("outreach_sequences.id", ondelete="CASCADE"), nullable=False)
-    step_number = Column(Integer, nullable=False)
-    channel = Column(String(50), default="EMAIL")
-    subject = Column(String(255), nullable=True)
-    body = Column(Text, nullable=False)
-    scheduled_for = Column(DateTime, nullable=False)
-    sent_at = Column(DateTime, nullable=True)
-    status = Column(String(50), default="PENDING")
-
-    sequence = relationship("OutreachSequenceModel", back_populates="messages")
-
-
 class AuditEventModel(Base):
     __tablename__ = "audit_logs"
 
@@ -303,61 +274,61 @@ class AuditEventModel(Base):
     latency_ms = Column(Integer, default=0)
 
 
-class SearchAgentModel(Base):
-    __tablename__ = "search_agents"
+# -------------------------------------------------------------------
+# Candidate Intake (Answer Bank) & Application Tracker Models
+# -------------------------------------------------------------------
+
+class CandidateIntakeModel(Base):
+    """
+    One-time candidate intake. Every form field and profile edit is generated
+    from these sections, so nothing is invented at apply time.
+    Work history and skills stay in the profile tables.
+    """
+    __tablename__ = "candidate_intakes"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    name = Column(String(255), nullable=False)
-    keywords = Column(JSON, default=list)
-    target_roles = Column(JSON, default=list)
-    technologies = Column(JSON, default=list)
-    excluded_keywords = Column(JSON, default=list)
-    remote_only = Column(Boolean, default=True)
-    minimum_compensation = Column(Float, nullable=True)
-    schedule_cron = Column(String(100), default="0 */6 * * *")
-    is_active = Column(Boolean, default=True)
-    last_run_at = Column(DateTime, nullable=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, unique=True)
+    identity = Column(JSON, default=dict)    # A. name, contact, location, links
+    targeting = Column(JSON, default=dict)   # B. titles, seniority, remote scope, salary, caps
+    documents = Column(JSON, default=dict)   # C. resume file paths per variant
+    screening = Column(JSON, default=dict)   # D. pre-approved screening answers
+    accounts = Column(JSON, default=dict)    # E. which platforms are logged in (never passwords)
+    linkedin = Column(JSON, default=dict)    # F. positioning, topics, photo/banner status
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class CrawlerSessionModel(Base):
-    __tablename__ = "crawler_sessions"
+class TrackedApplicationModel(Base):
+    """One row per application, whatever the channel (ATS form, Easy Apply, LinkedIn post, email)."""
+    __tablename__ = "application_tracker"
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
-    status = Column(String(50), default="COMPLETED")  # RUNNING, COMPLETED, FAILED
-    mode = Column(String(50), default="IMMEDIATE")  # IMMEDIATE, SCHEDULED
-    platforms_crawled = Column(JSON, default=list)
-    total_discovered = Column(Integer, default=0)
-    total_matched = Column(Integer, default=0)
-    total_applied = Column(Integer, default=0)
-    total_staged = Column(Integer, default=0)
-    duration_seconds = Column(Float, default=0.0)
-    max_duration_minutes = Column(Integer, default=15)
-    max_applications = Column(Integer, default=5)
-    summary_text = Column(Text, nullable=True)
-    execution_logs = Column(JSON, default=list)
+    dedup_key = Column(String(512), nullable=False, unique=True, index=True)
+    company = Column(String(255), nullable=False, index=True)
+    role = Column(String(255), nullable=False)
+    job_url = Column(Text, nullable=True)
+    source_platform = Column(String(100), nullable=False, default="MANUAL")
+    apply_channel = Column(String(100), nullable=True)  # e.g. GREENHOUSE, LEVER, EASY_APPLY, EMAIL, LINKEDIN_DM
+    opportunity_id = Column(String(36), nullable=True)
+    post_url = Column(Text, nullable=True)  # LinkedIn hiring post, when the role came from one
+    match_score = Column(Float, nullable=True)
+    resume_variant = Column(String(255), nullable=True)
+    cover_note = Column(Text, nullable=True)
+    status = Column(String(50), default="QUEUED", index=True)
+    submitted_at = Column(DateTime, nullable=True)
+    evidence = Column(JSON, default=list)  # screenshot paths, confirmation notes
+    next_action = Column(String(255), nullable=True)
+    next_action_due = Column(DateTime, nullable=True)
+    contact_name = Column(String(255), nullable=True)
+    contact_url = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    last_error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-
-
-class CrawlerScheduleModel(Base):
-    __tablename__ = "crawler_schedules"
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    is_active = Column(Boolean, default=False)
-    interval_hours = Column(Integer, default=6)
-    max_duration_minutes = Column(Integer, default=15)
-    max_applications = Column(Integer, default=5)
-    min_match_score = Column(Float, default=80.0)
-    auto_apply_enabled = Column(Boolean, default=True)
-    target_platforms = Column(JSON, default=list)
-    opportunity_types = Column(JSON, default=list)
-    last_run_at = Column(DateTime, nullable=True)
-    next_run_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # -------------------------------------------------------------------
-# Scraping Platform & Credentials Models
+# Scraping Platform Models
 # -------------------------------------------------------------------
 
 class ScrapingPlatformModel(Base):
@@ -369,28 +340,11 @@ class ScrapingPlatformModel(Base):
     category = Column(String(50), default="JOB_BOARD")  # JOB_BOARD, PROJECT_CONTRIBUTIONS, FREELANCE, STARTUPS, COMMUNITY
     added_by = Column(String(50), default="USER")       # USER, AI
     requires_auth = Column(Boolean, default=False)
-    auth_username = Column(String(255), nullable=True)  # User ID or Email for login
-    auth_password = Column(String(255), nullable=True)  # Password for login
     auth_notes = Column(Text, nullable=True)            # Notes / instructions / 2FA hint
     status = Column(String(50), default="ACTIVE")       # ACTIVE, PAUSED
     crawl_frequency_hours = Column(Integer, default=6)
     last_scraped_at = Column(DateTime, nullable=True)
     total_opportunities_found = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class AccountCredentialModel(Base):
-    __tablename__ = "account_credentials"
-
-    id = Column(String(36), primary_key=True, default=generate_uuid)
-    platform_name = Column(String(100), nullable=False, unique=True)  # e.g. "LINKEDIN", "WELLFOUND", "INDEED", "REMOTEOK", "GITHUB"
-    username = Column(String(255), nullable=False)
-    password = Column(String(255), nullable=False)
-    cookies = Column(Text, nullable=True)
-    notes = Column(Text, nullable=True)
-    is_active = Column(Boolean, default=True)
-    last_used_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
