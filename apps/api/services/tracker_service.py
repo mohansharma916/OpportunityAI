@@ -16,6 +16,7 @@ STATUSES = [
     "QUEUED",
     "PAUSED",
     "AWAITING_APPROVAL",
+    "APPROVED",
     "SUBMITTED",
     "VIEWED",
     "REPLIED",
@@ -25,6 +26,8 @@ STATUSES = [
     "GHOSTED",
 ]
 FOLLOW_UP_AFTER_DAYS = 7
+MAX_FOLLOW_UPS = 2
+TRUSTED_AFTER_CLEAN_SUBMITS = 20
 
 _EDITABLE = {
     "company", "role", "job_url", "source_platform", "apply_channel", "opportunity_id", "post_url",
@@ -80,6 +83,8 @@ class TrackerService:
             "contact_url": row.contact_url,
             "notes": row.notes,
             "last_error": row.last_error,
+            "form": row.form,
+            "follow_ups": row.follow_ups or 0,
             "created_at": iso(row.created_at),
             "updated_at": iso(row.updated_at),
         }
@@ -248,3 +253,149 @@ class TrackerService:
             ),
             "response_rate": round(100 * len(responded) / len(submitted)) if submitted else None,
         }
+
+    # ------------------------------------------------------------------
+    # Apply workflow: fill report -> candidate answers -> approval -> submit
+    # ------------------------------------------------------------------
+    @staticmethod
+    async def record_run(
+        db: AsyncSession,
+        row_id: str,
+        result: Dict[str, Any],
+        suggestions: Optional[Dict[str, Dict[str, Any]]] = None,
+        submit: bool = False,
+    ) -> TrackedApplicationModel:
+        """Store a worker run (fill report + outcome) on the tracker row and move its status."""
+        row = await TrackerService.get(db, row_id)
+        if not row:
+            raise LookupError(f"Application {row_id} not found")
+        form = dict(row.form or {})
+        unanswered = []
+        for q in result.get("unanswered_fields") or []:
+            q = dict(q)
+            if suggestions and q.get("canonical") in suggestions:
+                q["suggestion"] = suggestions[q["canonical"]]
+            unanswered.append(q)
+        form.update({
+            "adapter": result.get("adapter"), "fields": result.get("fields") or [], "unanswered": unanswered,
+            "fingerprint": result.get("fingerprint"), "details": result.get("details"),
+            "step": result.get("step_reached"), "run_at": datetime.utcnow().isoformat() + "Z",
+        })
+        row.form = form
+        row.evidence = list(row.evidence or []) + list(result.get("screenshots") or [])
+        row.apply_channel = row.apply_channel or result.get("adapter")
+
+        status = result.get("status")
+        if status == "SUBMITTED":
+            TrackerService._apply_fields(row, {"status": "SUBMITTED", "last_error": None})
+        elif status == "FILLED":
+            row.status, row.last_error, row.next_action = "AWAITING_APPROVAL", None, "Review the fill and approve"
+        elif status == "NEEDS_CANDIDATE":
+            row.status, row.last_error = "PAUSED", result.get("details")
+            row.next_action = "Answer the open questions" if unanswered else "Candidate action needed"
+        else:
+            row.last_error = result.get("details")
+        row.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(row)
+        await ActivityService.record_event(
+            db=db, entity_type="TRACKED_APPLICATION", entity_id=row.id,
+            action="APPLICATION_SUBMIT_RUN" if submit else "APPLICATION_FILL_RUN",
+            reason=f"{row.company} — {row.role}: {status} ({result.get('step_reached')})",
+        )
+        return row
+
+    @staticmethod
+    async def submit_answers(db: AsyncSession, row_id: str, answers: Dict[str, str]) -> TrackedApplicationModel:
+        """Candidate answers to open questions: saved to the answer bank, then the row is re-filled."""
+        from apps.api.services.profile_service import ProfileService
+
+        row = await TrackerService.get(db, row_id)
+        if not row:
+            raise LookupError(f"Application {row_id} not found")
+        form = dict(row.form or {})
+        labels = {q.get("canonical"): q.get("label") for q in form.get("unanswered") or []}
+        saved = 0
+        for canonical, value in answers.items():
+            if canonical not in labels:
+                raise ValueError(f"'{canonical}' is not an open question on this application")
+            if value is None or not str(value).strip():
+                continue
+            await ProfileService.save_or_update_answer(
+                db, question_text=labels[canonical], answer_text=str(value), question_canonical=canonical,
+                source="CANDIDATE",
+            )
+            saved += 1
+        form["manual_answers"] = int(form.get("manual_answers") or 0) + saved
+        row.form = form
+        if saved:
+            row.status, row.next_action = "QUEUED", "Worker re-fills with your answers"
+        row.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(row)
+        return row
+
+    @staticmethod
+    async def approve(db: AsyncSession, row_id: str) -> TrackedApplicationModel:
+        row = await TrackerService.get(db, row_id)
+        if not row:
+            raise LookupError(f"Application {row_id} not found")
+        form = dict(row.form or {})
+        if row.status != "AWAITING_APPROVAL" or not form.get("fingerprint"):
+            raise ValueError("Only a filled form awaiting approval can be approved.")
+        form["approved_fingerprint"] = form["fingerprint"]
+        form["approved_at"] = datetime.utcnow().isoformat() + "Z"
+        row.form = form
+        row.status, row.next_action = "APPROVED", "Worker submits it"
+        await db.commit()
+        await db.refresh(row)
+        await ActivityService.record_event(
+            db=db, entity_type="TRACKED_APPLICATION", entity_id=row.id, action="APPLICATION_APPROVED",
+            actor="USER", reason=f"{row.company} — {row.role} approved for submission",
+        )
+        return row
+
+    @staticmethod
+    async def clean_submits(db: AsyncSession, channel: Optional[str]) -> int:
+        """Submitted applications on this ATS that needed no answers from the candidate."""
+        if not channel:
+            return 0
+        rows = await TrackerService.list(db, status="SUBMITTED")
+        return sum(1 for r in rows if r.apply_channel == channel and r.form
+                   and r.form.get("approved_fingerprint") and not r.form.get("manual_answers"))
+
+    @staticmethod
+    async def is_trusted(db: AsyncSession, channel: Optional[str], enabled: bool) -> bool:
+        return enabled and await TrackerService.clean_submits(db, channel) >= TRUSTED_AFTER_CLEAN_SUBMITS
+
+    @staticmethod
+    def follow_up_message(row: TrackedApplicationModel, candidate_name: str) -> str:
+        first = (row.contact_name or "").split(" ")[0] or "there"
+        days = (datetime.utcnow() - row.submitted_at).days if row.submitted_at else FOLLOW_UP_AFTER_DAYS
+        return (
+            f"Hi {first}, I applied for the {row.role} role at {row.company} {days} days ago and wanted to check in. "
+            f"I'm still very interested and happy to share more about my work. Thanks for your time! — {candidate_name}"
+        )
+
+    @staticmethod
+    async def follow_ups_due(db: AsyncSession, candidate_name: str = "") -> List[Dict[str, Any]]:
+        now = datetime.utcnow()
+        rows = [r for r in await TrackerService.list(db)
+                if r.status in ("SUBMITTED", "VIEWED") and r.next_action_due and r.next_action_due <= now]
+        return [{**TrackerService.to_dict(r), "message": TrackerService.follow_up_message(r, candidate_name)} for r in rows]
+
+    @staticmethod
+    async def mark_followed_up(db: AsyncSession, row_id: str, note: Optional[str] = None) -> TrackedApplicationModel:
+        row = await TrackerService.get(db, row_id)
+        if not row:
+            raise LookupError(f"Application {row_id} not found")
+        row.follow_ups = (row.follow_ups or 0) + 1
+        stamp = datetime.utcnow().strftime("%Y-%m-%d")
+        row.notes = "\n".join(x for x in [row.notes, f"{stamp}: followed up" + (f" — {note}" if note else "")] if x)
+        if row.follow_ups >= MAX_FOLLOW_UPS:
+            row.next_action, row.next_action_due = "No reply after 2 follow-ups; mark as ghosted?", None
+        else:
+            row.next_action, row.next_action_due = "Follow up again", datetime.utcnow() + timedelta(days=FOLLOW_UP_AFTER_DAYS)
+        await db.commit()
+        await db.refresh(row)
+        return row

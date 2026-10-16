@@ -14,17 +14,20 @@ from typing import Any, Dict, List, Optional
 @dataclass
 class FormField:
     label: str
-    input_type: str = "text"  # text, email, tel, url, number, textarea, select, radio, checkbox, file
+    input_type: str = "text"  # text, email, tel, url, number, textarea, select, radio, checkbox, file, combobox
     name: str = ""
     required: bool = False
     options: List[str] = field(default_factory=list)
+    element_id: str = ""
+    key_hint: Optional[str] = None  # set by an ATS adapter that knows the field ("" = never fill)
 
 
 @dataclass
 class FieldAnswer:
     key: str
     value: str
-    kind: str = "text"  # text, file, choice
+    kind: str = "text"  # text, file, choice, search (combobox without a fixed option list)
+    source: str = "bank"  # bank (intake), custom (saved answer to a past question)
 
 
 # Ordered: the first rule whose pattern matches the normalized label wins,
@@ -57,8 +60,8 @@ _RULES: List[tuple] = [
     ("why_company", r"why .*(us|company|join|interested|role|position|apply)"),
     ("about_long", r"tell us about yourself|introduce yourself|about you\b|summary|additional information|anything else"),
     ("referral_source", r"how did you (hear|find|learn)|referr|where did you (hear|find)"),
-    ("country", r"\bcountry\b"),
     ("city", r"\b(city|location|where are you (located|based)|current address)\b"),
+    ("country", r"\bcountry\b"),
     ("current_company", r"current (company|employer)"),
     ("current_title", r"current (title|role|position)"),
 ]
@@ -116,10 +119,13 @@ def pick_option(value: str, options: List[str]) -> Optional[str]:
             if any(w in norm for w in ("decline", "prefer not", "don't wish", "do not wish", "choose not")):
                 return opt
         return None
-    for opt, norm in cleaned:
-        if norm and (want in norm or norm in want):
+    for opt, norm in sorted(cleaned, key=lambda c: len(c[1])):
+        if norm.startswith(want):
             return opt
-    return None
+    # Whole-word containment only: "India" must not pick "British Indian Ocean Territory"
+    word = re.compile(r"(?<![a-z0-9])" + re.escape(want) + r"(?![a-z0-9])")
+    hits = [(opt, norm) for opt, norm in cleaned if norm and (word.search(norm) or norm in want)]
+    return min(hits, key=lambda c: len(c[1]))[0] if hits else None
 
 
 class AnswerBank:
@@ -198,7 +204,13 @@ class AnswerBank:
         )
 
     def match(self, form_field: FormField) -> Optional[FieldAnswer]:
-        key = classify_label(form_field.label) or classify_label(form_field.name.replace("_", " "))
+        if form_field.key_hint == "":
+            return None
+        key = (
+            form_field.key_hint
+            or classify_label(form_field.label)
+            or classify_label(form_field.name.replace("_", " "))
+        )
         if form_field.input_type == "file":
             if key in (None, "resume") and self.resume_path:
                 return FieldAnswer("resume", self.resume_path, kind="file")
@@ -206,13 +218,16 @@ class AnswerBank:
         if key == "resume":
             return None
         value = self.answers.get(key) if key else None
+        source = "bank"
         if not value:
             custom_key = canonical_question(form_field.label)
             value = self.custom_answers.get(custom_key)
-            key = custom_key if value else key
+            key, source = (custom_key, "custom") if value else (key, source)
         if not value:
             return None
-        if form_field.input_type in ("select", "radio"):
+        if form_field.input_type in ("select", "radio") or (form_field.input_type == "combobox" and form_field.options):
             option = pick_option(value, form_field.options)
-            return FieldAnswer(key, option, kind="choice") if option else None
-        return FieldAnswer(key, value)
+            return FieldAnswer(key, option, kind="choice", source=source) if option else None
+        if form_field.input_type == "combobox":
+            return FieldAnswer(key, value, kind="search", source=source)
+        return FieldAnswer(key, value, source=source)

@@ -21,6 +21,10 @@
   employer 10, freshness 10. 70+ goes to the apply queue (up to your daily cap), 50-69 to a "maybe" list.
 - **Apply queue:** "Queue to Apply" adds a role to the tracker. Nothing is submitted from the API.
 - **Worker (`apps/worker`):** Playwright drives your own persistent Chrome profile, so logins live in the browser, not the database. It fills forms from the answer bank with human pacing, keeps a screenshot of every run, and hands CAPTCHAs, login walls and unknown questions back to you.
+- **ATS adapters:** Greenhouse and Lever (field ids/names, dropdown comboboxes, file inputs, confirmation pages), built from their live forms; Ashby and other sites use label matching.
+- **Approve, then submit:** a fill pauses on questions it has no answer for (Claude suggests answers from your facts when `ANTHROPIC_API_KEY` is set). Your answers are saved to the answer bank and reused. You review the filled fields and screenshot in Applications and approve; the worker re-fills and submits only if the answers still match what you approved. A CAPTCHA on submit waits in the open window for you to solve.
+- **Trusted auto-submit (opt-in):** after 20 approvals on one ATS needed no changes, queued applications there can submit without review.
+- **Follow-ups:** due 7 days after submitting, with a drafted message; after 2 follow-ups it suggests marking the role ghosted.
 - **Application tracker:** one row per application (ATS form, Easy Apply, LinkedIn post, email), de-duplicated by company + role, with status, evidence, and a follow-up date 7 days after submit.
 
 ### 2. LinkedIn
@@ -71,11 +75,13 @@ PYTHONPATH=. .venv/bin/python -m apps.worker.cli login
 ```
 Daily use:
 ```bash
-# Fill every QUEUED application in your browser, human-paced, without submitting
-PYTHONPATH=. .venv/bin/python -m apps.worker.cli queue --limit 5
+# Fill queued applications, submit the ones you approved, list follow-ups
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli run
 
-# After reviewing a row marked "Awaiting approval", submit it
-PYTHONPATH=. .venv/bin/python -m apps.worker.cli fill --tracker-id <id> --submit
+# Or step by step
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli queue          # fill (dry run)
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli submit         # submit approved, within the daily cap
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli inspect URL    # what a form would get; types nothing
 ```
 Discovery (run twice a day, e.g. from cron or launchd):
 ```bash
@@ -116,6 +122,10 @@ npm run dev
 | `GET` | `/api/tracker/stats` | Counts by status and source, submitted today, follow-ups due, response rate |
 | `POST` | `/api/tracker` | Track an application (409 if company + role is already tracked) |
 | `PUT` / `DELETE` | `/api/tracker/{id}` | Update status, notes, follow-up; remove |
+| `POST` | `/api/tracker/{id}/answers` | Answer open questions (saved to the answer bank; row is re-filled) |
+| `POST` | `/api/tracker/{id}/approve` | Approve a filled application for submission |
+| `GET` | `/api/tracker/{id}/evidence/{n}` | Screenshot of a worker run |
+| `GET` / `POST` | `/api/tracker/follow-ups`, `/api/tracker/{id}/follow-up` | Follow-ups due (with a drafted message); mark one done |
 | `GET` / `POST` | `/api/platforms` | Sources; adding one accepts Greenhouse / Lever / Ashby / supported board URLs |
 | `POST` | `/api/platforms/{id}/scrape` | Search one source now |
 | `POST` | `/api/discovery/run` | Search every source that is due (`?force=true` for all) |
@@ -159,6 +169,8 @@ opportunity-os/
 │   │       └── linkedin_growth_service.py
 │   ├── worker/
 │   │   ├── automation.py                 # Playwright worker, guardrails, human pacing
+│   │   ├── adapters.py                   # Greenhouse / Lever / Ashby form knowledge
+│   │   ├── apply_runner.py               # One tracker row: fill, approve-gate, submit
 │   │   ├── linkedin.py                   # LinkedIn profile reader & editor
 │   │   └── cli.py                        # login / fill / queue / linkedin-audit / linkedin-apply
 │   └── web/src/components/
@@ -171,6 +183,7 @@ opportunity-os/
 │   ├── answer_bank/                      # Form field -> approved answer matching
 │   ├── linkedin_optimizer/               # Export parser, audit, grounded drafts
 │   ├── ai/claude_drafter.py              # Claude polish with grounding check
+│   ├── ai/claude_answers.py              # Claude suggestions for open form questions
 │   ├── matching/discovery.py             # Eligibility filters + 0-100 score
 │   └── connectors/                       # job_feeds.py (APIs/RSS), linkedin_posts.py, company list
 └── tests/

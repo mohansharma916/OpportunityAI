@@ -6,11 +6,15 @@ never in our database.
 Guardrails:
 - Every answer comes from the AnswerBank; a required field with no answer pauses the run.
 - CAPTCHAs, bot checks and login walls are never bypassed; they are handed to the candidate.
-- Nothing is submitted unless the caller passes submit=True (the candidate's approval).
+  A CAPTCHA that appears on submit is left in the open window for the candidate to solve.
+- Nothing is submitted unless the caller passes submit=True (the candidate's approval), and
+  then only if the refilled answers match the ones that were approved (fingerprint).
 - Human pacing between fields and between applications; a screenshot is kept for every run.
 """
 
 import asyncio
+import hashlib
+import json
 import os
 import random
 import re
@@ -20,7 +24,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol
 
 from pydantic import BaseModel, Field
 
-from packages.answer_bank import AnswerBank, FieldAnswer, FormField
+from apps.worker.adapters import AtsAdapter, detect_adapter
+from packages.answer_bank import AnswerBank, FieldAnswer, FormField, canonical_question
 
 OOS_HOME = Path(os.getenv("OPPORTUNITY_OS_HOME", Path.home() / ".opportunity-os"))
 BROWSER_PROFILE_DIR = OOS_HOME / "browser-profile"
@@ -36,9 +41,13 @@ class AutomationResult(BaseModel):
     step_reached: str
     needs_captcha_solved: bool = False
     details: str
+    adapter: str = "GENERIC"
     fields_detected: int = 0
     fields_filled: int = 0
     unanswered: List[str] = Field(default_factory=list)
+    unanswered_fields: List[Dict[str, Any]] = Field(default_factory=list)
+    fields: List[Dict[str, Any]] = Field(default_factory=list)  # what was filled, for the candidate's review
+    fingerprint: Optional[str] = None
     screenshots: List[str] = Field(default_factory=list)
 
 
@@ -93,11 +102,28 @@ class PageDriver(Protocol):
     async def confirmation_detected(self) -> bool: ...
 
 
+def answers_fingerprint(fields: List[Dict[str, Any]]) -> str:
+    """Stable hash of what would be submitted, so a submit can be checked against the approved fill."""
+    items = sorted((f["label"], str(f.get("value"))) for f in fields if f.get("value") is not None)
+    return hashlib.sha256(json.dumps(items).encode()).hexdigest()[:16]
+
+
 class FormAutomationWorker:
-    def __init__(self, driver: PageDriver, pacer: Optional[HumanPacer] = None, evidence_dir: Path = EVIDENCE_DIR):
+    def __init__(
+        self,
+        driver: PageDriver,
+        pacer: Optional[HumanPacer] = None,
+        evidence_dir: Optional[Path] = None,
+        confirm_wait_s: float = 15,
+        captcha_wait_s: float = 300,
+        on_captcha: Optional[Callable[[], Awaitable[None]]] = None,
+    ):
         self.driver = driver
         self.pacer = pacer or HumanPacer()
-        self.evidence_dir = evidence_dir
+        self.evidence_dir = evidence_dir or EVIDENCE_DIR  # looked up at run time so tests can redirect it
+        self.confirm_wait_s = confirm_wait_s
+        self.captcha_wait_s = captcha_wait_s
+        self.on_captcha = on_captcha
 
     async def _shot(self, label: str, result: AutomationResult) -> None:
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -121,7 +147,54 @@ class FormAutomationWorker:
         await self._shot("blocked", result)
         return True
 
-    async def apply(self, url: str, bank: AnswerBank, submit: bool = False) -> AutomationResult:
+    async def _await_confirmation(self, result: AutomationResult) -> bool:
+        waited, announced = 0.0, False
+        while True:
+            if await self.driver.confirmation_detected():
+                return True
+            captcha = "captcha" in await self.driver.detect_blockers()
+            if captcha and not announced:
+                announced, result.needs_captcha_solved = True, True
+                if self.on_captcha:
+                    await self.on_captcha()
+            if waited >= (self.captcha_wait_s if captcha else self.confirm_wait_s):
+                return False
+            await self.pacer.sleep(2)
+            waited += 2
+
+    async def inspect(self, url: str, bank: AnswerBank) -> AutomationResult:
+        """Read the form and report what would be filled and what is missing. Types nothing."""
+        result = AutomationResult(url=url, status="INSPECTED", step_reached="START", details="")
+        await self.driver.goto(url)
+        result.adapter = getattr(self.driver, "adapter_name", "GENERIC")
+        blockers = await self.driver.detect_blockers()
+        fields = await self.driver.list_fields()
+        if not fields and not blockers and await self.driver.open_application_form():
+            fields = await self.driver.list_fields()
+        result.fields_detected = len(fields)
+        for f in fields:
+            answer = bank.match(f)
+            if answer:
+                result.fields.append({
+                    "label": f.label or f.name, "type": f.input_type, "required": f.required, "key": answer.key,
+                    "value": Path(answer.value).name if answer.kind == "file" else answer.value, "source": answer.source,
+                })
+            elif f.required:
+                result.unanswered.append(f.label or f.name)
+                result.unanswered_fields.append({"label": f.label or f.name, "type": f.input_type, "options": f.options,
+                                                 "canonical": canonical_question(f.label or f.name)})
+        result.fields_filled = len(result.fields)
+        result.details = (f"{len(fields)} fields: {result.fields_filled} answerable, {len(result.unanswered)} required "
+                          f"without an answer" + (f"; blockers: {', '.join(blockers)}" if blockers else ""))
+        return result
+
+    async def apply(
+        self,
+        url: str,
+        bank: AnswerBank,
+        submit: bool = False,
+        expected_fingerprint: Optional[str] = None,
+    ) -> AutomationResult:
         result = AutomationResult(url=url, status="FAILED", step_reached="START", details="")
         if not url.startswith(("http://", "https://")):
             result.step_reached = "URL_VALIDATION"
@@ -130,6 +203,7 @@ class FormAutomationWorker:
 
         try:
             await self.driver.goto(url)
+            result.adapter = getattr(self.driver, "adapter_name", "GENERIC")
             result.step_reached = "PAGE_LOADED"
             if await self._blocked(result, "SECURITY_GATE"):
                 return result
@@ -152,11 +226,20 @@ class FormAutomationWorker:
                 if answer is None:
                     if f.required:
                         result.unanswered.append(f.label or f.name or f.input_type)
+                        result.unanswered_fields.append({
+                            "label": f.label or f.name or f.input_type, "type": f.input_type,
+                            "options": f.options, "canonical": canonical_question(f.label or f.name),
+                        })
                     continue
                 await self.driver.fill(f, answer, self.pacer.typing_delay_ms())
                 result.fields_filled += 1
+                result.fields.append({
+                    "label": f.label or f.name, "type": f.input_type, "required": f.required, "key": answer.key,
+                    "value": Path(answer.value).name if answer.kind == "file" else answer.value, "source": answer.source,
+                })
                 await self.pacer.between_fields()
 
+            result.fingerprint = answers_fingerprint(result.fields)
             result.step_reached = "FORM_FILLED"
             await self._shot("filled", result)
 
@@ -175,6 +258,11 @@ class FormAutomationWorker:
                 result.details = f"Filled {result.fields_filled}/{result.fields_detected} fields. Not submitted (dry run)."
                 return result
 
+            if expected_fingerprint and result.fingerprint != expected_fingerprint:
+                result.status = "NEEDS_CANDIDATE"
+                result.step_reached = "FORM_CHANGED"
+                result.details = "The form or the answers changed since you approved them. Review the new fill before submitting."
+                return result
             if await self._blocked(result, "PRE_SUBMIT_SECURITY_GATE"):
                 return result
             if not await self.driver.click_submit():
@@ -184,14 +272,19 @@ class FormAutomationWorker:
                 return result
 
             result.step_reached = "SUBMITTED_CLICK"
+            confirmed = await self._await_confirmation(result)
             await self._shot("after-submit", result)
-            if await self.driver.confirmation_detected():
+            if confirmed:
                 result.status = "SUBMITTED"
                 result.step_reached = "CONFIRMED"
                 result.details = "Application submitted and confirmation page detected."
             else:
                 result.status = "NEEDS_CANDIDATE"
-                result.details = "Submit was clicked but no confirmation was detected. Check the browser."
+                result.details = (
+                    "Submit was clicked but a CAPTCHA was not solved in time. Check the browser."
+                    if result.needs_captcha_solved
+                    else "Submit was clicked but no confirmation was detected. Check the browser."
+                )
             return result
         except Exception as exc:  # surface browser errors as a tracked failure, not a crash
             result.status = "FAILED"
@@ -203,8 +296,6 @@ class FormAutomationWorker:
 # ---------------------------------------------------------------------------
 # Playwright implementation
 # ---------------------------------------------------------------------------
-
-_CAPTCHA_SRC = r"recaptcha|hcaptcha|challenges\.cloudflare|turnstile|arkoselabs|funcaptcha"
 
 _SCAN_FIELDS_JS = r"""
 (frameIndex) => {
@@ -219,14 +310,14 @@ _SCAN_FIELDS_JS = r"""
       const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (l && text(l)) return text(l);
     }
-    const wrap = el.closest('label');
-    if (wrap && text(wrap)) return text(wrap);
-    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
     const by = el.getAttribute('aria-labelledby');
     if (by) {
       const t = by.split(' ').map((id) => text(document.getElementById(id))).join(' ').trim();
       if (t) return t;
     }
+    const wrap = el.closest('label');
+    if (wrap && text(wrap)) return text(wrap);
+    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label');
     const group = el.closest('fieldset, [role="group"], .field, .form-group, .application-question');
     if (group) {
       const head = group.querySelector('legend, label, .label, .application-label');
@@ -238,13 +329,13 @@ _SCAN_FIELDS_JS = r"""
   const seenRadio = new Set();
   let n = 0;
   document.querySelectorAll('input, textarea, select').forEach((el) => {
-    const type = (el.tagName === 'SELECT') ? 'select' : (el.tagName === 'TEXTAREA') ? 'textarea' : (el.type || 'text').toLowerCase();
+    let type = (el.tagName === 'SELECT') ? 'select' : (el.tagName === 'TEXTAREA') ? 'textarea' : (el.type || 'text').toLowerCase();
     if (['hidden', 'submit', 'button', 'reset', 'image', 'search', 'password'].includes(type)) return;
+    if (el.getAttribute('aria-hidden') === 'true') return;  // e.g. react-select's shadow "required" input
     if (type !== 'file' && !visible(el)) return;
     if (el.disabled || el.readOnly) return;
-    if (type === 'checkbox') {
-      if (!el.required) return;  // required consent boxes need the candidate
-    }
+    if (el.getAttribute('role') === 'combobox') type = 'combobox';
+    if (type === 'checkbox' && !el.required) return;  // required consent boxes need the candidate
     const ref = `oos-${frameIndex}-${n++}`;
     if (type === 'radio') {
       if (!el.name || seenRadio.has(el.name)) return;
@@ -253,57 +344,65 @@ _SCAN_FIELDS_JS = r"""
       radios.forEach((r, i) => r.setAttribute('data-oos-ref', `${ref}-opt${i}`));
       const group = el.closest('fieldset, [role="radiogroup"], .field, .form-group, .application-question');
       const legend = group ? text(group.querySelector('legend, label, .label')) : '';
-      out.push({ ref, type, name: el.name, label: legend || el.name, required: radios.some((r) => r.required),
-                 options: radios.map((r) => labelFor(r)) });
+      out.push({ ref, type, name: el.name, id: el.id || '', label: legend || el.name,
+                 required: radios.some((r) => r.required), options: radios.map((r) => labelFor(r)) });
       return;
     }
     el.setAttribute('data-oos-ref', ref);
     const options = type === 'select' ? Array.from(el.options).map((o) => o.text.trim()).filter(Boolean) : [];
-    const required = el.required || el.getAttribute('aria-required') === 'true'
-      || /\*\s*$/.test(labelFor(el));
-    out.push({ ref, type, name: el.getAttribute('name') || '', label: labelFor(el), required, options });
+    const label = labelFor(el);
+    const required = el.required || el.getAttribute('aria-required') === 'true' || /[*✱]\s*$/.test(label);
+    out.push({ ref, type, name: el.getAttribute('name') || '', id: el.id || '', label, required, options });
   });
   return out;
 }
 """
 
 _BLOCKERS_JS = r"""
-(captchaSrc) => {
-  const found = [];
-  const re = new RegExp(captchaSrc, 'i');
-  const visibleBox = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null; };
+() => {
+  const found = new Set();
+  const box = (el) => {
+    const r = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    return (r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none') ? r : null;
+  };
   for (const f of document.querySelectorAll('iframe')) {
     const src = f.getAttribute('src') || '';
-    const box = visibleBox(f);
-    if (!box || !re.test(src)) continue;
-    // Invisible reCAPTCHA v3 only shows a small badge; a real challenge is taller.
-    if (/cloudflare|turnstile/i.test(src) || box.height >= 70) { found.push('captcha'); break; }
+    const b = box(f);
+    if (!b) continue;
+    // Invisible bot checks (reCAPTCHA v3 badge, hCaptcha enclave) are not challenges.
+    if (/hcaptcha/i.test(src)) { if (/frame=(challenge|checkbox)/i.test(src) && b.height >= 60) found.add('captcha'); }
+    else if (/recaptcha/i.test(src)) {
+      if ((/bframe/i.test(src) && b.height >= 100) || (/anchor/i.test(src) && !/size=invisible/i.test(src) && b.height >= 70)) found.add('captcha');
+    }
+    else if (/challenges\.cloudflare|turnstile/i.test(src)) found.add('captcha');
+    else if (/arkoselabs|funcaptcha/i.test(src) && b.height >= 70) found.add('captcha');
   }
-  if (document.querySelector('#challenge-form, #cf-challenge-running')) found.push('captcha');
+  if (document.querySelector('#challenge-form, #cf-challenge-running')) found.add('captcha');
   for (const p of document.querySelectorAll('input[type="password"]')) {
-    if (visibleBox(p)) { found.push('login'); break; }
+    if (box(p)) { found.add('login'); break; }
   }
-  return Array.from(new Set(found));
+  return Array.from(found);
 }
 """
 
-_CONFIRM_RE = re.compile(
-    r"thank(s| you) for (applying|your application|your interest)|application (has been |was )?(received|submitted)"
-    r"|we('ve| have) received your application|successfully (submitted|applied)",
-    re.I,
-)
-
 
 class PlaywrightDriver:
-    def __init__(self, page: Any):
+    def __init__(self, page: Any, adapter: Optional[AtsAdapter] = None):
         self.page = page
+        self.adapter = adapter
         self._form_frame_index = 0
+
+    @property
+    def adapter_name(self) -> str:
+        return self.adapter.name if self.adapter else "GENERIC"
 
     def _frames(self) -> List[Any]:
         return list(self.page.frames)
 
     async def goto(self, url: str) -> None:
-        await self.page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        self.adapter = self.adapter or detect_adapter(url)
+        await self.page.goto(self.adapter.form_url(url), wait_until="domcontentloaded", timeout=45000)
         try:
             await self.page.wait_for_load_state("networkidle", timeout=10000)
         except Exception:
@@ -313,10 +412,27 @@ class PlaywrightDriver:
         found: List[str] = []
         for frame in self._frames():
             try:
-                found.extend(await frame.evaluate(_BLOCKERS_JS, _CAPTCHA_SRC))
+                found.extend(await frame.evaluate(_BLOCKERS_JS))
             except Exception:
                 continue
         return sorted(set(found))
+
+    async def _combobox_options(self, frame: Any, field: DetectedField) -> List[str]:
+        loc = frame.locator(f'[data-oos-ref="{field.ref}"]')
+        texts: List[str] = []
+        try:
+            await loc.click(timeout=3000)
+            await asyncio.sleep(0.4)
+            opts = frame.get_by_role("option")
+            for i in range(min(await opts.count(), 400)):
+                t = (await opts.nth(i).inner_text()).strip()
+                if t:
+                    texts.append(t)
+        except Exception:
+            pass
+        finally:
+            await self.page.keyboard.press("Escape")
+        return texts
 
     async def list_fields(self) -> List[DetectedField]:
         best: List[DetectedField] = []
@@ -328,24 +444,49 @@ class PlaywrightDriver:
             fields = [
                 DetectedField(
                     ref=r["ref"], frame_index=i, label=r["label"], input_type=r["type"],
-                    name=r["name"], required=bool(r["required"]), options=r["options"],
+                    name=r["name"], required=bool(r["required"]), options=r["options"], element_id=r.get("id", ""),
                 )
                 for r in raw
             ]
             # The application form is the frame with the most fields (ATS forms are often embedded iframes).
             if len(fields) > len(best):
                 best, self._form_frame_index = fields, i
+        frame = self._frames()[self._form_frame_index] if best else None
+        for f in best:
+            if self.adapter:
+                f.key_hint = self.adapter.key_hint(f)
+            if f.input_type == "combobox" and frame is not None:
+                f.options = await self._combobox_options(frame, f)
         return best
 
     async def open_application_form(self) -> bool:
-        button = self.page.get_by_role("link", name=re.compile(r"^apply( now| for this (job|position|role))?$", re.I))
+        name = re.compile(r"^apply( now| for this (job|position|role))?$", re.I)
+        button = self.page.get_by_role("link", name=name)
         if await button.count() == 0:
-            button = self.page.get_by_role("button", name=re.compile(r"^apply( now| for this (job|position|role))?$", re.I))
+            button = self.page.get_by_role("button", name=name)
         if await button.count() == 0:
             return False
         await button.first.click()
         await self.page.wait_for_load_state("domcontentloaded")
         return True
+
+    async def _fill_combobox(self, frame: Any, loc: Any, answer: FieldAnswer, typing_delay_ms: int) -> None:
+        await loc.click()
+        if answer.kind == "choice":
+            option = frame.get_by_role("option", name=answer.value, exact=True)
+            if await option.count() == 0:
+                await loc.press_sequentially(answer.value[:40], delay=typing_delay_ms)
+                await asyncio.sleep(0.5)
+                option = frame.get_by_role("option", name=answer.value, exact=True)
+            await option.first.click()
+            return
+        await loc.press_sequentially(answer.value[:60], delay=typing_delay_ms)  # async search (e.g. location)
+        await asyncio.sleep(1.0)
+        options = frame.get_by_role("option")
+        if await options.count():
+            await options.first.click()
+        else:
+            await loc.press("Enter")
 
     async def fill(self, field: DetectedField, answer: FieldAnswer, typing_delay_ms: int) -> None:
         frame = self._frames()[field.frame_index]
@@ -356,6 +497,8 @@ class PlaywrightDriver:
         loc = frame.locator(f'[data-oos-ref="{field.ref}"]')
         if answer.kind == "file":
             await loc.set_input_files(answer.value)
+        elif field.input_type == "combobox":
+            await self._fill_combobox(frame, loc, answer, typing_delay_ms)
         elif field.input_type == "select":
             await loc.select_option(label=answer.value)
         elif field.input_type == "checkbox":
@@ -388,12 +531,13 @@ class PlaywrightDriver:
         return True
 
     async def confirmation_detected(self) -> bool:
+        adapter = self.adapter or AtsAdapter()
         for frame in self._frames():
             try:
                 body = await frame.inner_text("body", timeout=5000)
             except Exception:
                 continue
-            if _CONFIRM_RE.search(body):
+            if adapter.is_confirmed(self.page.url, body):
                 return True
         return False
 

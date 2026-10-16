@@ -2,9 +2,13 @@
 OpportunityOS — Worker CLI (runs on the candidate's own machine)
 
   python -m apps.worker.cli login                      # sign in to LinkedIn / job boards once, in the automation browser
+  python -m apps.worker.cli inspect URL                # what would be filled on a form (types nothing)
   python -m apps.worker.cli fill URL --company X --role Y   # fill one form, dry run (no submit)
-  python -m apps.worker.cli fill --tracker-id ID --submit   # submit after the candidate has approved it
-  python -m apps.worker.cli queue --limit 5            # dry-run every QUEUED tracker row, human-paced
+  python -m apps.worker.cli queue --limit 5            # fill every QUEUED row (dry run), human-paced
+  python -m apps.worker.cli approve ID                 # approve a filled application (or use the Applications tab)
+  python -m apps.worker.cli submit                     # submit approved applications, within the daily cap
+  python -m apps.worker.cli run                        # queue + submit + follow-ups due
+  python -m apps.worker.cli follow-ups                 # follow-ups due, with a drafted message
   python -m apps.worker.cli linkedin-audit             # read your LinkedIn profile, score it, draft fixes
   python -m apps.worker.cli linkedin-apply             # dry-run approved headline/About edits
   python -m apps.worker.cli linkedin-apply --save      # save approved headline/About edits
@@ -18,9 +22,10 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from apps.api.db import AsyncSessionLocal, init_db
-from apps.api.services.intake_service import DEFAULT_DAILY_CAP, IntakeService
+from apps.api.services.intake_service import IntakeService
 from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerService
 from apps.api.services.tracker_service import DuplicateApplicationError, TrackerService
+from apps.worker.apply_runner import SkipRow, auto_submit_enabled, run_row
 from apps.worker.automation import AutomationResult, BrowserSession, FormAutomationWorker, HumanPacer, PlaywrightDriver
 from apps.api.services.discovery_service import DiscoveryService
 from apps.worker.linkedin import NeedsCandidate, apply_edit, read_profile, search_posts
@@ -35,39 +40,58 @@ LOGIN_URLS = [
 ]
 
 
-def tracker_update_for(result: AutomationResult) -> Dict[str, Any]:
-    """Translate a worker run into tracker fields."""
-    if result.status == "SUBMITTED":
-        return {"status": "SUBMITTED", "last_error": None}
-    if result.status == "FILLED":
-        return {"status": "AWAITING_APPROVAL", "last_error": None, "next_action": "Review and approve submit"}
-    if result.status == "NEEDS_CANDIDATE":
-        return {"status": "PAUSED", "last_error": result.details, "next_action": "Candidate action needed"}
-    return {"last_error": result.details}
-
-
-async def _daily_cap(db, user_id: Optional[str] = None) -> int:
-    intake = await IntakeService.get_or_create(db, user_id=user_id)
-    return int((intake.targeting or {}).get("daily_cap") or DEFAULT_DAILY_CAP)
-
-
-async def _run_one(session: BrowserSession, db, row, submit: bool, pacer: HumanPacer) -> AutomationResult:
-    bank = await IntakeService.build_answer_bank(
-        db, resume_variant=row.resume_variant if row else None, cover_note=row.cover_note if row else None
-    )
-    page = await session.new_page()
-    worker = FormAutomationWorker(PlaywrightDriver(page), pacer=pacer)
-    result = await worker.apply(row.job_url, bank, submit=submit)
-    update = tracker_update_for(result)
-    update["evidence"] = list(row.evidence or []) + result.screenshots
-    await TrackerService.update(db, row.id, update)
-    return result
-
-
 def _print(result: AutomationResult) -> None:
     print(f"[{result.status}] {result.step_reached} — {result.details}")
+    for q in result.unanswered_fields:
+        print(f"  ? {q['label']}" + (f"  options: {', '.join(q['options'][:6])}" if q.get("options") else ""))
     for s in result.screenshots:
         print(f"  evidence: {s}")
+
+
+async def _announce_captcha() -> None:
+    print("  A CAPTCHA appeared after submit. Solve it in the browser window; waiting up to 5 minutes…")
+
+
+async def _process(rows: List, submit_rule, pacer: HumanPacer, keep_open: bool = False) -> None:
+    """Run rows in one browser session, human-paced; submit_rule(db, row) decides dry run vs submit."""
+    async with BrowserSession() as session:
+        for i, row_id in enumerate(rows):
+            async with AsyncSessionLocal() as db:
+                row = await TrackerService.get(db, row_id)
+                submit = await submit_rule(db, row)
+                print(f"({i + 1}/{len(rows)}) {row.company} — {row.role} [{'submit' if submit else 'fill'}]")
+                page = await session.new_page()
+                try:
+                    _print(await run_row(db, row, PlaywrightDriver(page), pacer, submit, on_captcha=_announce_captcha))
+                except SkipRow as exc:
+                    print(f"  skipped: {exc}")
+                    await page.close()
+                    continue
+            if i < len(rows) - 1:
+                print(f"  waited {await pacer.between_applications():.0f}s")
+        if keep_open:
+            print("Browser left open for review. Close it when done.")
+            await session.wait_until_closed()
+
+
+async def _queued_ids(db, limit: int) -> List[str]:
+    return [r.id for r in await TrackerService.list(db, status="QUEUED") if r.job_url][:limit]
+
+
+async def _approved_ids(db, limit: int) -> List[str]:
+    return [r.id for r in await TrackerService.list(db, status="APPROVED") if r.job_url][:limit]
+
+
+async def _trusted_rule(db, row) -> bool:
+    return await TrackerService.is_trusted(db, row.apply_channel, await auto_submit_enabled(db))
+
+
+async def _always_submit(db, row) -> bool:
+    return True
+
+
+async def _never_submit(db, row) -> bool:
+    return False
 
 
 async def cmd_login(args: argparse.Namespace) -> int:
@@ -101,44 +125,79 @@ async def cmd_fill(args: argparse.Namespace) -> int:
             except DuplicateApplicationError as dup:
                 print(f"Already tracked ({dup.existing.status}); using that row.")
                 row = dup.existing
-        if not row.job_url:
-            print("This application has no job URL.", file=sys.stderr)
-            return 1
-
-        if args.submit:
-            if row.status not in ("AWAITING_APPROVAL", "PAUSED"):
-                print("Submit only after a dry run has filled the form and you have reviewed it.", file=sys.stderr)
-                return 1
-            cap = await _daily_cap(db)
-            if await TrackerService.submitted_today(db) >= cap:
-                print(f"Daily cap of {cap} submissions reached. Try again tomorrow.", file=sys.stderr)
-                return 1
-
-        async with BrowserSession() as session:
-            result = await _run_one(session, db, row, submit=args.submit, pacer=HumanPacer())
-            _print(result)
-            if args.keep_open:
-                print("Browser left open for review. Close it when done.")
-                await session.wait_until_closed()
-    return 0 if result.status in ("FILLED", "SUBMITTED") else 2
+    await _process([row.id], _always_submit if args.submit else _never_submit, HumanPacer(), keep_open=args.keep_open)
+    return 0
 
 
 async def cmd_queue(args: argparse.Namespace) -> int:
+    """Fill every QUEUED application (dry run; trusted job sites submit directly if you opted in)."""
     await init_db()
     async with AsyncSessionLocal() as db:
-        rows: List = [r for r in await TrackerService.list(db, status="QUEUED") if r.job_url][: args.limit]
-        if not rows:
-            print("Nothing queued.")
-            return 0
-        pacer = HumanPacer(min_gap_s=args.min_gap, max_gap_s=args.max_gap)
-        async with BrowserSession() as session:
-            for i, row in enumerate(rows):
-                print(f"({i + 1}/{len(rows)}) {row.company} — {row.role}")
-                _print(await _run_one(session, db, row, submit=False, pacer=pacer))
-                if i < len(rows) - 1:
-                    gap = await pacer.between_applications()
-                    print(f"  waited {gap:.0f}s")
+        ids = await _queued_ids(db, args.limit)
+    if not ids:
+        print("Nothing queued.")
+        return 0
+    await _process(ids, _trusted_rule, HumanPacer(min_gap_s=args.min_gap, max_gap_s=args.max_gap))
     return 0
+
+
+async def cmd_submit(args: argparse.Namespace) -> int:
+    """Submit every application you approved, within the daily cap."""
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        ids = await _approved_ids(db, args.limit)
+    if not ids:
+        print("Nothing approved. Review filled applications in the Applications tab and approve them.")
+        return 0
+    await _process(ids, _always_submit, HumanPacer(min_gap_s=args.min_gap, max_gap_s=args.max_gap))
+    return 0
+
+
+async def cmd_approve(args: argparse.Namespace) -> int:
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        try:
+            row = await TrackerService.approve(db, args.tracker_id)
+        except (LookupError, ValueError) as exc:
+            print(exc, file=sys.stderr)
+            return 1
+    print(f"Approved {row.company} — {row.role}. Run `submit` to send it.")
+    return 0
+
+
+async def cmd_inspect(args: argparse.Namespace) -> int:
+    """Show what would be filled on a form, and what's missing. Types nothing."""
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        bank = await IntakeService.build_answer_bank(db)
+    async with BrowserSession() as session:
+        page = await session.new_page()
+        result = await FormAutomationWorker(PlaywrightDriver(page), pacer=HumanPacer()).inspect(args.url, bank)
+    print(f"{result.adapter}: {result.details}")
+    for f in result.fields:
+        print(f"  fill  {f['label'][:60]:60} <- {str(f['value'])[:40]!r}")
+    for q in result.unanswered_fields:
+        print(f"  ASK   {q['label'][:60]:60}" + (f" options: {', '.join(q['options'][:5])}" if q.get("options") else ""))
+    return 0
+
+
+async def cmd_follow_ups(args: argparse.Namespace) -> int:
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        intake = await IntakeService.get_or_create(db)
+        due = await TrackerService.follow_ups_due(db, (intake.identity or {}).get("full_name") or "")
+    if not due:
+        print("No follow-ups due.")
+    for d in due:
+        print(f"- {d['company']} — {d['role']} (submitted {(d['submitted_at'] or '')[:10]})\n    {d['message']}")
+    return 0
+
+
+async def cmd_run(args: argparse.Namespace) -> int:
+    """Daily loop: fill queued, submit approved, list follow-ups."""
+    await cmd_queue(args)
+    await cmd_submit(args)
+    return await cmd_follow_ups(args)
 
 
 async def cmd_linkedin_audit(args: argparse.Namespace) -> int:
@@ -270,15 +329,31 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_fill.add_argument("--role")
     p_fill.add_argument("--source")
     p_fill.add_argument("--resume-variant")
-    p_fill.add_argument("--submit", action="store_true", help="Submit (only after reviewing a dry run)")
+    p_fill.add_argument("--submit", action="store_true", help="Submit (only if approved)")
     p_fill.add_argument("--keep-open", action="store_true", help="Leave the browser open to review the form")
     p_fill.set_defaults(func=cmd_fill)
 
-    p_queue = sub.add_parser("queue", help="Dry-run fill every QUEUED application")
-    p_queue.add_argument("--limit", type=int, default=5)
-    p_queue.add_argument("--min-gap", type=float, default=30)
-    p_queue.add_argument("--max-gap", type=float, default=120)
-    p_queue.set_defaults(func=cmd_queue)
+    for name, func, help_text in (
+        ("queue", cmd_queue, "Fill every QUEUED application (dry run)"),
+        ("submit", cmd_submit, "Submit approved applications within the daily cap"),
+        ("run", cmd_run, "Fill queued, submit approved, list follow-ups"),
+    ):
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("--limit", type=int, default=5)
+        p.add_argument("--min-gap", type=float, default=30)
+        p.add_argument("--max-gap", type=float, default=120)
+        p.set_defaults(func=func)
+
+    p_approve = sub.add_parser("approve", help="Approve a filled application for submission")
+    p_approve.add_argument("tracker_id")
+    p_approve.set_defaults(func=cmd_approve)
+
+    p_inspect = sub.add_parser("inspect", help="Show what would be filled on a form; types nothing")
+    p_inspect.add_argument("url")
+    p_inspect.set_defaults(func=cmd_inspect)
+
+    p_fu = sub.add_parser("follow-ups", help="Follow-ups due, with a drafted message")
+    p_fu.set_defaults(func=cmd_follow_ups)
 
     p_li_audit = sub.add_parser("linkedin-audit", help="Read your LinkedIn profile, score it and draft fixes")
     p_li_audit.add_argument("--no-claude", action="store_true", help="Use template drafts only")

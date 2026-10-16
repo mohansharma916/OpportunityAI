@@ -9,7 +9,6 @@ from typing import List
 import pytest
 
 from apps.worker.automation import AutomationResult, DetectedField, FormAutomationWorker, HumanPacer
-from apps.worker.cli import tracker_update_for
 from packages.answer_bank import AnswerBank, FormField, classify_label, pick_option
 
 INTAKE = {
@@ -170,11 +169,3 @@ async def test_pacer_gaps_stay_in_range():
         await pacer.between_applications()
     assert all(30 <= s <= 120 for s in slept)
     assert all(40 <= pacer.typing_delay_ms() <= 120 for _ in range(20))
-
-
-def test_tracker_update_mapping():
-    base = dict(url=URL, step_reached="X", details="d")
-    assert tracker_update_for(AutomationResult(status="FILLED", **base))["status"] == "AWAITING_APPROVAL"
-    assert tracker_update_for(AutomationResult(status="NEEDS_CANDIDATE", **base))["status"] == "PAUSED"
-    assert tracker_update_for(AutomationResult(status="SUBMITTED", **base))["status"] == "SUBMITTED"
-    assert "status" not in tracker_update_for(AutomationResult(status="FAILED", **base))

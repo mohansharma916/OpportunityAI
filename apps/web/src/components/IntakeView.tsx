@@ -64,6 +64,12 @@ const SECTIONS: SectionDef[] = [
       { key: 'earliest_start', label: 'Earliest start date', type: 'date' },
       { key: 'excluded_companies', label: 'Companies to exclude', type: 'list' },
       { key: 'daily_cap', label: 'Daily application cap', type: 'number', hint: 'Suggested 10 to 20.' },
+      {
+        key: 'auto_submit_trusted',
+        label: 'Auto-submit on trusted job sites?',
+        type: 'bool',
+        hint: 'Only after 20 approvals on that site (e.g. Greenhouse) needed no changes. Off by default.',
+      },
     ],
   },
   {

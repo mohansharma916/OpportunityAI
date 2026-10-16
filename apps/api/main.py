@@ -4,6 +4,7 @@ Production REST API with async database sessions, OpenAPI docs, and domain servi
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +29,7 @@ from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerServic
 from apps.api.services.tracker_service import (
     DuplicateApplicationError,
     STATUSES as TRACKER_STATUSES,
+    TRUSTED_AFTER_CLEAN_SUBMITS,
     TrackerService,
 )
 from apps.api.models import (
@@ -236,6 +238,14 @@ class UpdateIntakeRequest(BaseModel):
     screening: Optional[Dict[str, Any]] = None
     accounts: Optional[Dict[str, Any]] = None
     linkedin: Optional[Dict[str, Any]] = None
+
+
+class TrackerAnswersRequest(BaseModel):
+    answers: Dict[str, str]  # canonical question id -> answer
+
+
+class FollowUpRequest(BaseModel):
+    note: Optional[str] = None
 
 
 class TrackedApplicationRequest(BaseModel):
@@ -1048,6 +1058,9 @@ async def list_tracker_endpoint(
 async def tracker_stats_endpoint(db: AsyncSession = Depends(get_db)):
     stats = await TrackerService.stats(db)
     stats["statuses"] = TRACKER_STATUSES
+    channels = {r.apply_channel for r in await TrackerService.list(db) if r.apply_channel}
+    stats["clean_submits"] = {c: await TrackerService.clean_submits(db, c) for c in sorted(channels)}
+    stats["trusted_after"] = TRUSTED_AFTER_CLEAN_SUBMITS
     return stats
 
 
@@ -1078,6 +1091,58 @@ async def update_tracker_endpoint(
         })
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return TrackerService.to_dict(row)
+
+
+@app.post("/api/tracker/{application_id}/answers")
+async def answer_tracker_questions(application_id: str, req: TrackerAnswersRequest, db: AsyncSession = Depends(get_db)):
+    """Answer open questions; answers are saved to the answer bank and the worker re-fills the form."""
+    try:
+        row = await TrackerService.submit_answers(db, application_id, req.answers)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return TrackerService.to_dict(row)
+
+
+@app.post("/api/tracker/{application_id}/approve")
+async def approve_tracker_application(application_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        row = await TrackerService.approve(db, application_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return TrackerService.to_dict(row)
+
+
+@app.get("/api/tracker/{application_id}/evidence/{index}")
+async def tracker_evidence(application_id: str, index: int, db: AsyncSession = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    from apps.worker.automation import EVIDENCE_DIR
+
+    row = await TrackerService.get(db, application_id)
+    if not row or not (0 <= index < len(row.evidence or [])):
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    path = Path(row.evidence[index]).resolve()
+    if not path.is_relative_to(EVIDENCE_DIR.resolve()) or not path.is_file():
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/api/tracker/follow-ups")
+async def tracker_follow_ups(db: AsyncSession = Depends(get_db)):
+    intake = await IntakeService.get_or_create(db)
+    return await TrackerService.follow_ups_due(db, (intake.identity or {}).get("full_name") or "")
+
+
+@app.post("/api/tracker/{application_id}/follow-up")
+async def tracker_mark_followed_up(application_id: str, req: FollowUpRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        row = await TrackerService.mark_followed_up(db, application_id, req.note)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return TrackerService.to_dict(row)
 
 

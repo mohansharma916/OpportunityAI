@@ -323,6 +323,8 @@ class TrackedApplicationModel(Base):
     contact_url = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     last_error = Column(Text, nullable=True)
+    form = Column(JSON, nullable=True)        # last fill report: fields, unanswered (+ suggestions), fingerprint
+    follow_ups = Column(Integer, nullable=True, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
