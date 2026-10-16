@@ -159,7 +159,7 @@ class LinkedInOptimizerService:
             "alternatives": d.alternatives or [], "rationale": d.rationale, "instructions": d.instructions,
             "apply_mode": d.apply_mode, "char_limit": d.char_limit, "generated_by": d.generated_by,
             "status": d.status, "last_error": d.last_error, "evidence": d.evidence or [],
-            "applied_at": d.applied_at.isoformat() if d.applied_at else None,
+            "applied_at": d.applied_at.isoformat() + "Z" if d.applied_at else None,
         }
 
     @staticmethod
@@ -238,7 +238,7 @@ class LinkedInOptimizerService:
         drafts = await LinkedInOptimizerService.list_drafts(db)
         return {
             "snapshot": {
-                "id": row.id, "source": row.source, "captured_at": row.captured_at.isoformat(), "data": row.data,
+                "id": row.id, "source": row.source, "captured_at": row.captured_at.isoformat() + "Z", "data": row.data,
             } if row else None,
             "audit": row.audit if row else None,
             "drafts": [LinkedInOptimizerService.draft_dict(d) for d in drafts],

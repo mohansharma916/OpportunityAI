@@ -1,97 +1,73 @@
 """
 OpportunityOS — Test Suite for the Core Features
-1. Job discovery (Platforms list, User & AI additions, Date grouping, User status tracking, Queue to apply)
+1. Job discovery (sources, discovery run, scoring, queue to apply)
 2. LinkedIn Post Studio (Post publisher, Post analysis, Human post synthesis)
 """
+
+from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient, ASGITransport
 from apps.api.main import app
 from apps.api.db import init_db
+from packages.connectors.job_feeds import JobPosting
 
 
 @pytest.mark.asyncio
-async def test_feature_1_job_scraper_and_human_apply():
+async def test_feature_1_sources_discovery_and_queue(monkeypatch):
     await init_db()
+
+    async def fake_fetch(client, url, source, company=None):
+        return [JobPosting(
+            source=source, source_kind="WWR", external_id="t-1", title="Backend Engineer",
+            company="Acme Feature Test", url="https://example.com/job/1", apply_url="https://example.com/job/1/apply",
+            location="Anywhere in the World", remote=True, regions=[], description="Build services in Haskell.",
+            posted_at=datetime.utcnow() - timedelta(days=10),
+        )]
+
+    monkeypatch.setattr("apps.api.services.discovery_service.fetch_postings", fake_fetch)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Fetch platforms (seeds defaults if empty)
-        resp = await client.get("/api/platforms")
-        assert resp.status_code == 200
-        platforms = resp.json()
-        assert len(platforms) >= 4
-        platform_names = [p["name"] for p in platforms]
-        assert any("Arbeitnow" in n for n in platform_names)
+        await client.put("/api/intake", json={"targeting": {"target_titles": ["Backend Engineer"], "min_salary": None},
+                                             "identity": {"country": "India"}})
 
-        # 2. User adds a custom platform (logins live in the browser profile, never in the API)
-        create_payload = {
-            "name": "Wellfound Custom Startups",
-            "url": "https://wellfound.com/jobs/startups",
-            "category": "STARTUPS",
-            "requires_auth": True,
-            "auth_notes": "Requires 2FA verification code.",
-            "crawl_frequency_hours": 8,
-        }
-        res_create = await client.post("/api/platforms", json=create_payload)
-        assert res_create.status_code == 200
-        new_platform = res_create.json()
-        assert new_platform["name"] == "Wellfound Custom Startups"
-        assert new_platform["added_by"] == "USER"
-        platform_id = new_platform["id"]
+        # 1. Default sources: job boards + verified company boards, nothing pretends to have run
+        platforms = (await client.get("/api/platforms")).json()
+        names = {p["name"]: p for p in platforms}
+        assert {"Remote OK", "GitLab", "PostHog"} <= set(names)
+        assert any(n.startswith("We Work Remotely") for n in names)
+        wellfound = next(p for p in platforms if "wellfound.com" in p["url"])
+        assert wellfound["status"] == "NEEDS_LOGIN"
+        assert names["GitLab"]["category"] == "COMPANY_BOARD"
+        assert all("has_password" not in p for p in platforms)
 
-        # 3. AI discovers and adds new platforms
-        res_ai = await client.post("/api/platforms/ai-discover")
-        assert res_ai.status_code == 200
-        ai_data = res_ai.json()
-        assert ai_data["success"] is True
+        # 2. Adding a source: supported board URLs only
+        bad = await client.post("/api/platforms", json={"name": "Random", "url": "https://example.com/careers"})
+        assert bad.status_code == 400
+        res = await client.post("/api/platforms", json={"name": "Acme Board", "url": "https://jobs.ashbyhq.com/acme-feature-test"})
+        assert res.status_code == 200
+        platform = res.json()
+        assert platform["category"] == "COMPANY_BOARD" and platform["added_by"] == "USER"
+        dup = await client.post("/api/platforms", json={"name": "Again", "url": "https://jobs.ashbyhq.com/acme-feature-test/"})
+        assert dup.status_code == 400
 
-        # 4. Scrape single platform
-        res_single_scrape = await client.post(f"/api/platforms/{platform_id}/scrape")
-        assert res_single_scrape.status_code == 200
-        scrape_result = res_single_scrape.json()
-        assert scrape_result["status"] == "SUCCESS"
+        # 3. Run discovery for that source
+        run = (await client.post(f"/api/platforms/{platform['id']}/scrape")).json()
+        assert run["platforms_run"] == 1 and run["fetched"] == 1 and run["new"] == 1 and run["maybe"] == 1
+        maybe = (await client.get("/api/opportunities", params={"status": "MAYBE"})).json()
+        opp = next(o for o in maybe if o["company_name"] == "Acme Feature Test")
+        assert opp["raw_metadata"]["score_breakdown"]["title"] == 25
 
-        # 5. Get date-grouped opportunities
-        res_grouped = await client.get("/api/opportunities/grouped-by-date")
-        assert res_grouped.status_code == 200
-        grouped_data = res_grouped.json()
-        assert "groups" in grouped_data
-        assert "today" in grouped_data["groups"]
-        assert "status_counts" in grouped_data
+        # 4. Queue it by hand; a second queue is a duplicate
+        res_apply = await client.post(f"/api/opportunities/{opp['id']}/human-apply")
+        assert res_apply.status_code == 200 and res_apply.json()["status"] == "QUEUED"
+        assert (await client.post(f"/api/opportunities/{opp['id']}/human-apply")).status_code == 409
 
-        # Find an opportunity to track status and apply
-        all_opps = (
-            grouped_data["groups"]["today"]
-            + grouped_data["groups"]["yesterday"]
-            + grouped_data["groups"]["this_week"]
-            + grouped_data["groups"]["earlier"]
-        )
-        assert len(all_opps) > 0
-        target_opp = all_opps[0]
-        opp_id = target_opp["id"]
+        # 5. Running again doesn't duplicate the job
+        again = (await client.post(f"/api/platforms/{platform['id']}/scrape")).json()
+        assert again["new"] == 0
 
-        # 6. User maintains and updates status
-        res_status = await client.put(
-            f"/api/opportunities/{opp_id}/user-status",
-            json={"status": "REVIEWING", "reason": "Candidate evaluating compensation package."},
-        )
-        assert res_status.status_code == 200
-        assert res_status.json()["status"] == "REVIEWING"
-
-        # 7. Queue the application in the tracker (the worker fills it; nothing is submitted here)
-        res_apply = await client.post(f"/api/opportunities/{opp_id}/human-apply")
-        assert res_apply.status_code == 200
-        apply_result = res_apply.json()
-        assert apply_result["success"] is True
-        assert apply_result["status"] == "QUEUED"
-        assert apply_result["application"]["opportunity_id"] == opp_id
-
-        # 8. Queuing the same role again is rejected as a duplicate
-        res_dup = await client.post(f"/api/opportunities/{opp_id}/human-apply")
-        assert res_dup.status_code == 409
-
-        # 9. No credential fields are exposed for platforms
-        assert all("has_password" not in p for p in (await client.get("/api/platforms")).json())
+        await client.delete(f"/api/platforms/{platform['id']}")
 
 
 @pytest.mark.asyncio

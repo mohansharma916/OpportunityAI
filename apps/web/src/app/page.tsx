@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { ClipboardList, Globe, ListChecks, Share2, UserCircle2, X, Zap } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 import { Navigation } from '@/components/Navigation';
-import { JobScraperView } from '@/components/JobScraperView';
+import { JobsView } from '@/components/JobsView';
 import { LinkedInGrowthAgentView } from '@/components/LinkedInGrowthAgentView';
 import { ProfileView } from '@/components/ProfileView';
 import { AuthScreen } from '@/components/AuthScreen';
@@ -28,7 +28,7 @@ export default function OpportunityOSApp() {
     },
     scraper: {
       title: 'Remote Jobs',
-      subtitle: 'Platforms, date-grouped discovery, and the apply queue',
+      subtitle: 'Job boards and company job boards, filtered by your intake and scored; 70+ goes to the apply queue',
       icon: Globe,
     },
     applications: {
@@ -200,10 +200,7 @@ export default function OpportunityOSApp() {
           )}
 
           {currentTab === 'scraper' && (
-            <JobScraperView
-              onRefreshAllData={loadProfileData}
-              profile={profile}
-            />
+            <JobsView />
           )}
 
           {currentTab === 'linkedin' && (

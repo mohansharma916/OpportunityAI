@@ -372,11 +372,13 @@ class ScrapingPlatformModel(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
     url = Column(String(500), nullable=False)
-    category = Column(String(50), default="JOB_BOARD")  # JOB_BOARD, PROJECT_CONTRIBUTIONS, FREELANCE, STARTUPS, COMMUNITY
-    added_by = Column(String(50), default="USER")       # USER, AI
+    category = Column(String(50), default="JOB_BOARD")  # JOB_BOARD, COMPANY_BOARD, LINKEDIN_POSTS, ...
+    added_by = Column(String(50), default="USER")       # USER, SYSTEM
     requires_auth = Column(Boolean, default=False)
     auth_notes = Column(Text, nullable=True)            # Notes / instructions / 2FA hint
-    status = Column(String(50), default="ACTIVE")       # ACTIVE, PAUSED
+    status = Column(String(50), default="ACTIVE")       # ACTIVE, PAUSED, NEEDS_LOGIN, UNSUPPORTED
+    remote_first = Column(Boolean, nullable=True)       # company boards: known remote-first employer
+    last_run = Column(JSON, nullable=True)              # fetched / eligible / new / queued / error of the last run
     crawl_frequency_hours = Column(Integer, default=6)
     last_scraped_at = Column(DateTime, nullable=True)
     total_opportunities_found = Column(Integer, default=0)

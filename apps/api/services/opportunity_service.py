@@ -13,7 +13,6 @@ from apps.api.models import (
     OpportunityModel,
     MatchingScoreModel,
     ApplicationModel,
-    ContactModel,
 )
 from packages.domain.models import (
     Opportunity,
@@ -170,18 +169,6 @@ class OpportunityService:
             scored_at=datetime.utcnow(),
         )
         db.add(score_model)
-
-        # Auto-create potential hiring contact stub
-        contact = ContactModel(
-            company_name=opp_model.company_name,
-            full_name=f"Hiring Team @ {opp_model.company_name}",
-            role="Engineering Manager",
-            email=f"careers@{opp_model.company_domain or 'company.com'}",
-            associated_opportunity_id=opp_model.id,
-            relationship_status="NEW",
-            notes=f"Identified for role: {opp_model.title}",
-        )
-        db.add(contact)
 
         await db.commit()
 

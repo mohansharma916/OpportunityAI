@@ -58,7 +58,7 @@ class TrackerService:
     @staticmethod
     def to_dict(row: TrackedApplicationModel) -> Dict[str, Any]:
         def iso(dt: Optional[datetime]) -> Optional[str]:
-            return dt.isoformat() if dt else None
+            return dt.isoformat() + "Z" if dt else None
         return {
             "id": row.id,
             "company": row.company,

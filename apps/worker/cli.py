@@ -8,6 +8,8 @@ OpportunityOS — Worker CLI (runs on the candidate's own machine)
   python -m apps.worker.cli linkedin-audit             # read your LinkedIn profile, score it, draft fixes
   python -m apps.worker.cli linkedin-apply             # dry-run approved headline/About edits
   python -m apps.worker.cli linkedin-apply --save      # save approved headline/About edits
+  python -m apps.worker.cli discover                   # search job boards + company boards that are due
+  python -m apps.worker.cli linkedin-posts             # search LinkedIn hiring posts (max 2 runs a day)
 """
 
 import argparse
@@ -20,7 +22,9 @@ from apps.api.services.intake_service import DEFAULT_DAILY_CAP, IntakeService
 from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerService
 from apps.api.services.tracker_service import DuplicateApplicationError, TrackerService
 from apps.worker.automation import AutomationResult, BrowserSession, FormAutomationWorker, HumanPacer, PlaywrightDriver
-from apps.worker.linkedin import NeedsCandidate, apply_edit, read_profile
+from apps.api.services.discovery_service import DiscoveryService
+from apps.worker.linkedin import NeedsCandidate, apply_edit, read_profile, search_posts
+from packages.connectors.linkedin_posts import parse_hiring_post, search_urls
 
 LOGIN_URLS = [
     "https://www.linkedin.com/login",
@@ -188,6 +192,69 @@ async def cmd_linkedin_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+MAX_POST_SEARCHES_PER_DAY = 2
+
+
+def _print_discovery(summary: Dict[str, Any]) -> None:
+    print(f"{summary.get('platforms_run', 0)} sources: {summary.get('fetched', 0)} fetched, "
+          f"{summary.get('eligible', 0)} eligible, {summary.get('new', 0)} new "
+          f"({summary.get('match', 0)} match, {summary.get('maybe', 0)} maybe), {summary.get('queued', 0)} queued")
+    for p in summary.get("platforms", []):
+        if p.get("error"):
+            print(f"  ! {p['platform']}: {p['error']}")
+
+
+async def cmd_discover(args: argparse.Namespace) -> int:
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        _print_discovery(await DiscoveryService.run(db, force=args.force))
+    return 0
+
+
+async def _post_searches_today(db) -> int:
+    from datetime import datetime
+    from sqlalchemy import func, select
+    from apps.api.models import AuditEventModel
+    start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    res = await db.execute(select(func.count(AuditEventModel.id)).where(
+        AuditEventModel.action == "LINKEDIN_POST_SEARCH", AuditEventModel.timestamp >= start))
+    return int(res.scalar() or 0)
+
+
+async def cmd_linkedin_posts(args: argparse.Namespace) -> int:
+    await init_db()
+    async with AsyncSessionLocal() as db:
+        if await _post_searches_today(db) >= MAX_POST_SEARCHES_PER_DAY and not args.force:
+            print(f"Already searched LinkedIn posts {MAX_POST_SEARCHES_PER_DAY} times today. Try again tomorrow.")
+            return 0
+        prefs = await DiscoveryService.prefs(db)
+        if not prefs.target_titles:
+            print("Set target titles in the intake first (section B).", file=sys.stderr)
+            return 1
+        urls = search_urls(prefs.target_titles, prefs.skills, limit=args.queries)
+    pacer = HumanPacer(min_gap_s=args.min_gap, max_gap_s=args.max_gap)
+    async with BrowserSession() as session:
+        page = await session.new_page()
+        try:
+            raw = await search_posts(page, urls, pacer)
+        except NeedsCandidate as exc:
+            print(exc, file=sys.stderr)
+            return 2
+    postings = [p for p in (parse_hiring_post(r, prefs.target_titles) for r in raw) if p]
+    async with AsyncSessionLocal() as db:
+        stats = await DiscoveryService.ingest_linkedin_posts(db, postings)
+        from apps.api.services.activity_service import ActivityService
+        await ActivityService.record_event(
+            db=db, entity_type="DISCOVERY", entity_id="linkedin-posts", action="LINKEDIN_POST_SEARCH",
+            reason=f"{len(urls)} searches, {len(raw)} posts read, {len(postings)} hiring posts",
+            output_payload=stats,
+        )
+    print(f"{len(urls)} searches, {len(raw)} posts read, {len(postings)} hiring posts: "
+          f"{stats['eligible']} eligible, {stats['new']} new ({stats['match']} match, {stats['maybe']} maybe), "
+          f"{stats['queued']} queued")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="opportunity-os-worker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -223,6 +290,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_li_apply.add_argument("--min-gap", type=float, default=30)
     p_li_apply.add_argument("--max-gap", type=float, default=90)
     p_li_apply.set_defaults(func=cmd_linkedin_apply)
+
+    p_disc = sub.add_parser("discover", help="Search job boards and company boards that are due")
+    p_disc.add_argument("--force", action="store_true", help="Search every source now, even if not due")
+    p_disc.set_defaults(func=cmd_discover)
+
+    p_posts = sub.add_parser("linkedin-posts", help="Search LinkedIn hiring posts in your browser")
+    p_posts.add_argument("--queries", type=int, default=5)
+    p_posts.add_argument("--min-gap", type=float, default=20)
+    p_posts.add_argument("--max-gap", type=float, default=60)
+    p_posts.add_argument("--force", action="store_true", help="Ignore the 2-runs-a-day limit")
+    p_posts.set_defaults(func=cmd_linkedin_posts)
 
     args = parser.parse_args(argv)
     return asyncio.run(args.func(args))

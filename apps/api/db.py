@@ -44,7 +44,25 @@ async def init_db() -> None:
     import apps.api.models  # noqa: F401 - Ensure all models are registered
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_add_missing_columns)
         await conn.run_sync(_purge_stored_credentials)
+
+
+def _add_missing_columns(sync_conn) -> None:
+    """create_all never alters existing tables; add new nullable columns to older databases."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(sync_conn)
+    existing_tables = set(inspector.get_table_names())
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue
+        present = {c["name"] for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in present or not column.nullable:
+                continue
+            col_type = column.type.compile(dialect=sync_conn.dialect)
+            sync_conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{column.name}" {col_type}'))
 
 
 def _purge_stored_credentials(sync_conn) -> None:

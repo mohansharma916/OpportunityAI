@@ -13,7 +13,12 @@
 - Passwords, cookies and tokens are never stored (they are stripped on save).
 
 ### 1. Remote jobs: discover, apply, track
-- **Discovery:** platform list (user + AI added) and date-grouped opportunities.
+- **Discovery:** official public feeds only. Job boards: We Work Remotely, Remote OK, Himalayas, Remotive, Jobicy.
+  Company job boards: 68 verified Greenhouse / Lever / Ashby boards (`packages/connectors/remote_companies.json`),
+  plus any board URL you add. LinkedIn hiring posts are searched in your browser by the worker.
+- **Filters and score:** remote and open to your country, salary floor, excluded companies, posted within 14 days
+  (60 on company pages), title matches your targets. Score 0-100 = skills 40, title & seniority 25, salary 15,
+  employer 10, freshness 10. 70+ goes to the apply queue (up to your daily cap), 50-69 to a "maybe" list.
 - **Apply queue:** "Queue to Apply" adds a role to the tracker. Nothing is submitted from the API.
 - **Worker (`apps/worker`):** Playwright drives your own persistent Chrome profile, so logins live in the browser, not the database. It fills forms from the answer bank with human pacing, keeps a screenshot of every run, and hands CAPTCHAs, login walls and unknown questions back to you.
 - **Application tracker:** one row per application (ATS form, Easy Apply, LinkedIn post, email), de-duplicated by company + role, with status, evidence, and a follow-up date 7 days after submit.
@@ -72,6 +77,12 @@ PYTHONPATH=. .venv/bin/python -m apps.worker.cli queue --limit 5
 # After reviewing a row marked "Awaiting approval", submit it
 PYTHONPATH=. .venv/bin/python -m apps.worker.cli fill --tracker-id <id> --submit
 ```
+Discovery (run twice a day, e.g. from cron or launchd):
+```bash
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli discover          # job boards + company boards that are due
+PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-posts    # LinkedIn hiring posts (max 2 runs a day)
+```
+
 LinkedIn profile:
 ```bash
 PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-audit        # read, score, draft
@@ -105,8 +116,10 @@ npm run dev
 | `GET` | `/api/tracker/stats` | Counts by status and source, submitted today, follow-ups due, response rate |
 | `POST` | `/api/tracker` | Track an application (409 if company + role is already tracked) |
 | `PUT` / `DELETE` | `/api/tracker/{id}` | Update status, notes, follow-up; remove |
-| `GET` / `POST` | `/api/platforms` | Platform list (no credentials) |
-| `POST` | `/api/platforms/{id}/scrape`, `/api/platforms/scrape-all` | Run discovery |
+| `GET` / `POST` | `/api/platforms` | Sources; adding one accepts Greenhouse / Lever / Ashby / supported board URLs |
+| `POST` | `/api/platforms/{id}/scrape` | Search one source now |
+| `POST` | `/api/discovery/run` | Search every source that is due (`?force=true` for all) |
+| `GET` | `/api/opportunities?status=MATCH` | Discovered roles: `MATCH`, `MAYBE`, `QUEUED`, `DISMISSED` |
 | `GET` | `/api/opportunities/grouped-by-date` | Opportunities by Today, Yesterday, This Week, Earlier |
 | `POST` | `/api/opportunities/{id}/human-apply` | Queue the opportunity in the tracker for the worker |
 | `GET` | `/api/linkedin/optimizer` | Latest profile snapshot, audit and drafts |
@@ -139,7 +152,8 @@ opportunity-os/
 │   │   └── services/
 │   │       ├── intake_service.py         # Answer bank intake + completeness
 │   │       ├── tracker_service.py        # Application tracker, de-dup, follow-ups
-│   │       ├── platform_service.py       # Platform registry & discovery
+│   │       ├── platform_service.py       # Sources: job boards + verified company boards
+│   │       ├── discovery_service.py      # Fetch, filter, score, queue
 │   │       ├── linkedin_optimizer_service.py # Profile snapshot, audit, drafts, approvals
 │   │       ├── opportunity_service.py    # Opportunities & date grouping
 │   │       └── linkedin_growth_service.py
@@ -149,7 +163,7 @@ opportunity-os/
 │   │   └── cli.py                        # login / fill / queue / linkedin-audit / linkedin-apply
 │   └── web/src/components/
 │       ├── IntakeView.tsx                # Candidate intake form
-│       ├── JobScraperView.tsx            # Remote jobs + apply queue
+│       ├── JobsView.tsx                  # Matches / maybe / queued + sources
 │       ├── ApplicationsTrackerView.tsx   # Application tracker
 │       ├── LinkedInOptimizerView.tsx     # Profile audit + draft approvals
 │       └── LinkedInGrowthAgentView.tsx   # Optimizer, hiring posts, post studio
@@ -157,7 +171,7 @@ opportunity-os/
 │   ├── answer_bank/                      # Form field -> approved answer matching
 │   ├── linkedin_optimizer/               # Export parser, audit, grounded drafts
 │   ├── ai/claude_drafter.py              # Claude polish with grounding check
-│   ├── matching/                         # Fit scoring
-│   └── connectors/                       # Job sources
+│   ├── matching/discovery.py             # Eligibility filters + 0-100 score
+│   └── connectors/                       # job_feeds.py (APIs/RSS), linkedin_posts.py, company list
 └── tests/
 ```

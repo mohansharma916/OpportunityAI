@@ -15,7 +15,8 @@ import pytest_asyncio
 playwright_api = pytest.importorskip("playwright.async_api")
 
 from apps.worker.automation import HumanPacer  # noqa: E402
-from apps.worker.linkedin import NeedsCandidate, apply_edit, read_profile  # noqa: E402
+from apps.worker.linkedin import NeedsCandidate, apply_edit, read_profile, search_posts  # noqa: E402
+from packages.connectors.linkedin_posts import parse_hiring_post  # noqa: E402
 
 PROFILE = """<!doctype html><html><head><meta charset="utf-8"></head><body><main>
 <section>
@@ -60,6 +61,20 @@ SKILLS = """<!doctype html><html><head><meta charset="utf-8"></head><body><main>
 </ul></main></body></html>"""
 
 
+SEARCH = """<!doctype html><html><head><meta charset="utf-8"></head><body><main><ul>
+<li><div data-urn="urn:li:activity:111">
+  <a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/ravi?x=1">
+    <span class="update-components-actor__title"><span aria-hidden="true">Ravi K</span></span>
+    <span class="update-components-actor__description"><span aria-hidden="true">Engineering Manager at Acme Labs</span></span>
+    <span class="update-components-actor__sub-description"><span aria-hidden="true">2d •</span></span></a>
+  <div class="update-components-text">We're hiring a Senior Backend Engineer, remote (India).
+    <span id="more" hidden>Apply here: <a href="https://jobs.lever.co/acme/123">jobs.lever.co/acme/123</a></span></div>
+  <button onclick="document.getElementById('more').hidden=false">…see more</button>
+</div></li>
+<li><div data-urn="urn:li:activity:222"><div class="update-components-text">Loved this conference talk.</div></div></li>
+</ul></main></body></html>"""
+
+
 @pytest.fixture(scope="module")
 def site(tmp_path_factory):
     root = tmp_path_factory.mktemp("linkedin")
@@ -68,6 +83,7 @@ def site(tmp_path_factory):
         "in/me/details/experience/index.html": EXPERIENCE,
         "in/me/details/skills/index.html": SKILLS,
         "login/index.html": "<html><body>Sign in</body></html>",
+        "search/index.html": SEARCH,
     }.items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -147,3 +163,17 @@ async def test_apply_edit_dry_run_save_and_mismatch(site, page, tmp_path):
 
     with pytest.raises(ValueError):
         await apply_edit(page, "skills", "x", None, pacer=PACER, evidence_dir=tmp_path, base_url=url)
+
+
+@pytest.mark.asyncio
+async def test_search_posts_expands_and_extracts(site, page):
+    posts = await search_posts(page, [f"{site}/search/"], pacer=PACER)
+    assert len(posts) == 2
+    first = next(p for p in posts if "111" in p["post_url"])
+    assert first["post_url"] == "https://www.linkedin.com/feed/update/urn:li:activity:111/"
+    assert first["author"] == "Ravi K" and first["author_headline"] == "Engineering Manager at Acme Labs"
+    assert first["author_url"] == "https://www.linkedin.com/in/ravi" and first["age_label"] == "2d •"
+    assert "https://jobs.lever.co/acme/123" in first["links"]  # only visible after "see more"
+    job = parse_hiring_post(first, ["Backend Engineer"])
+    assert job.company == "Acme Labs" and job.meta["apply_method"] == "ATS_LINK"
+    assert parse_hiring_post(next(p for p in posts if "222" in p["post_url"]), ["Backend Engineer"]) is None

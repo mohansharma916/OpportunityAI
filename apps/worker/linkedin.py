@@ -236,3 +236,57 @@ async def apply_edit(
     if _norm(new_text)[:60] not in body:
         raise NeedsCandidate(f"Saved, but the new {section} doesn't show on the profile yet. Check it in the browser.")
     return shots
+
+
+# ---------------------------------------------------------------------------
+# Hiring-post search (Pillar 1c)
+# ---------------------------------------------------------------------------
+
+_POSTS_JS = r"""
+() => {
+  const txt = (el) => el ? el.innerText.replace(/\s+\n/g, '\n').trim() : '';
+  const vis = (el) => el ? (el.querySelector('span[aria-hidden="true"]') || el).innerText.trim() : '';
+  const nodes = Array.from(document.querySelectorAll('[data-urn*="urn:li:activity:"], [data-chameleon-result-urn*="urn:li:activity:"]'));
+  const seen = new Set();
+  const out = [];
+  for (const el of nodes) {
+    const urn = el.getAttribute('data-urn') || el.getAttribute('data-chameleon-result-urn');
+    if (!urn || seen.has(urn) || el.parentElement.closest('[data-urn*="urn:li:activity:"]')) continue;
+    seen.add(urn);
+    const body = el.querySelector('.update-components-text, .feed-shared-inline-show-more-text, .feed-shared-text, [data-test-post-text]');
+    const authorLink = el.querySelector('a.update-components-actor__meta-link, a.update-components-actor__image, a[href*="/in/"], a[href*="/company/"]');
+    out.push({
+      post_url: 'https://www.linkedin.com/feed/update/' + urn + '/',
+      text: txt(body) || txt(el),
+      author: vis(el.querySelector('.update-components-actor__title, .update-components-actor__name, [data-test-author-name]')),
+      author_headline: vis(el.querySelector('.update-components-actor__description, [data-test-author-headline]')),
+      author_url: authorLink ? authorLink.href.split('?')[0] : null,
+      age_label: vis(el.querySelector('.update-components-actor__sub-description, [data-test-post-age]')),
+      links: Array.from((body || el).querySelectorAll('a[href^="http"]')).map((a) => a.href),
+    });
+  }
+  return out;
+}
+"""
+
+
+async def search_posts(page: Any, urls: List[str], pacer: Optional[HumanPacer] = None) -> List[dict]:
+    """Open each LinkedIn post search, expand truncated posts, and return the raw posts."""
+    pacer = pacer or HumanPacer()
+    posts: dict = {}
+    for i, url in enumerate(urls):
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        await _settle(page)
+        _check_access(page.url)
+        await _scroll_through(page, pacer)
+        more = page.get_by_role("button", name=re.compile(r"see more", re.I))
+        for j in range(min(await more.count(), 20)):
+            try:
+                await more.nth(j).click(timeout=2000)
+            except Exception:
+                pass
+        for post in await page.evaluate(_POSTS_JS):
+            posts.setdefault(post["post_url"], post)
+        if i < len(urls) - 1:
+            await pacer.between_applications()
+    return list(posts.values())

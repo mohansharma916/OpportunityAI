@@ -130,7 +130,7 @@ class IntakeService:
         data = {section: getattr(intake, section) or {} for section in SECTIONS}
         data["id"] = intake.id
         data["user_id"] = intake.user_id
-        data["updated_at"] = intake.updated_at.isoformat() if intake.updated_at else None
+        data["updated_at"] = intake.updated_at.isoformat() + "Z" if intake.updated_at else None
         data["completeness"] = IntakeService.completeness(intake)
         return data
 

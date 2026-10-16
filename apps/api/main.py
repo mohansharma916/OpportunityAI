@@ -22,6 +22,7 @@ from apps.api.services.auth_service import AuthService
 from apps.api.services.onboarding_service import OnboardingService
 from apps.api.services.linkedin_growth_service import LinkedInGrowthService
 from apps.api.services.platform_service import PlatformService
+from apps.api.services.discovery_service import DiscoveryService
 from apps.api.services.intake_service import IntakeService
 from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerService
 from apps.api.services.tracker_service import (
@@ -216,18 +217,14 @@ class LinkedInCommandRequest(BaseModel):
 class CreatePlatformRequest(BaseModel):
     name: str
     url: str
-    category: str = "JOB_BOARD"
-    requires_auth: bool = False
     auth_notes: Optional[str] = None
-    crawl_frequency_hours: int = 6
+    crawl_frequency_hours: int = 12
 
 
 class UpdatePlatformRequest(BaseModel):
     name: Optional[str] = None
     url: Optional[str] = None
     status: Optional[str] = None
-    category: Optional[str] = None
-    requires_auth: Optional[bool] = None
     auth_notes: Optional[str] = None
     crawl_frequency_hours: Optional[int] = None
 
@@ -903,131 +900,54 @@ async def run_linkedin_command_endpoint(req: LinkedInCommandRequest, db: AsyncSe
 
 
 # -------------------------------------------------------------------
-# Feature 1: Job / Project Web Scraper Platform & Automation Endpoints
+# Platforms & Discovery
 # -------------------------------------------------------------------
 
 @app.get("/api/platforms")
 async def get_platforms_endpoint(db: AsyncSession = Depends(get_db)):
-    try:
-        platforms = await PlatformService.get_or_seed_platforms(db)
-        return [
-            {
-                "id": p.id,
-                "name": p.name,
-                "url": p.url,
-                "category": p.category,
-                "added_by": p.added_by,
-                "requires_auth": p.requires_auth,
-                "auth_notes": p.auth_notes,
-                "status": p.status,
-                "crawl_frequency_hours": p.crawl_frequency_hours,
-                "last_scraped_at": p.last_scraped_at.isoformat() if p.last_scraped_at else None,
-                "total_opportunities_found": p.total_opportunities_found,
-                "created_at": p.created_at.isoformat(),
-            }
-            for p in platforms
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return [PlatformService.to_dict(p) for p in await PlatformService.list_platforms(db)]
 
 
 @app.post("/api/platforms")
 async def create_platform_endpoint(req: CreatePlatformRequest, db: AsyncSession = Depends(get_db)):
     try:
         platform = await PlatformService.create_platform(
-            db=db,
-            name=req.name,
-            url=req.url,
-            category=req.category,
-            requires_auth=req.requires_auth,
-            auth_notes=req.auth_notes,
-            crawl_frequency_hours=req.crawl_frequency_hours,
-            added_by="USER",
+            db=db, name=req.name, url=req.url, auth_notes=req.auth_notes,
+            crawl_frequency_hours=req.crawl_frequency_hours, added_by="USER",
         )
-        return {
-            "id": platform.id,
-            "name": platform.name,
-            "url": platform.url,
-            "category": platform.category,
-            "added_by": platform.added_by,
-            "status": platform.status,
-            "message": "Platform added successfully.",
-        }
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/platforms/ai-discover")
-async def ai_discover_platforms_endpoint(db: AsyncSession = Depends(get_db)):
-    try:
-        discovered = await PlatformService.ai_discover_platforms(db)
-        return {
-            "success": True,
-            "count": len(discovered),
-            "discovered_platforms": discovered,
-            "message": f"AI Scraper Agent evaluated web sources and added {len(discovered)} new platforms.",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    return PlatformService.to_dict(platform)
 
 
 @app.put("/api/platforms/{platform_id}")
 async def update_platform_endpoint(platform_id: str, req: UpdatePlatformRequest, db: AsyncSession = Depends(get_db)):
     try:
-        updated = await PlatformService.update_platform(db, platform_id, req.dict(exclude_unset=True))
-        return {
-            "id": updated.id,
-            "name": updated.name,
-            "status": updated.status,
-            "message": "Platform updated.",
-        }
-    except Exception as e:
+        updated = await PlatformService.update_platform(db, platform_id, req.model_dump(exclude_unset=True))
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return PlatformService.to_dict(updated)
 
 
 @app.delete("/api/platforms/{platform_id}")
 async def delete_platform_endpoint(platform_id: str, db: AsyncSession = Depends(get_db)):
-    try:
-        deleted = await PlatformService.delete_platform(db, platform_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Platform not found")
-        return {"success": True, "message": "Platform removed."}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    if not await PlatformService.delete_platform(db, platform_id):
+        raise HTTPException(status_code=404, detail="Platform not found")
+    return {"success": True}
 
 
 @app.post("/api/platforms/{platform_id}/scrape")
 async def scrape_single_platform_endpoint(platform_id: str, db: AsyncSession = Depends(get_db)):
-    try:
-        result = await PlatformService.scrape_platform(db, platform_id)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    if not await PlatformService.get(db, platform_id):
+        raise HTTPException(status_code=404, detail="Platform not found")
+    return await DiscoveryService.run(db, platform_ids=[platform_id])
 
 
 @app.post("/api/platforms/scrape-all")
-async def scrape_all_platforms_endpoint(db: AsyncSession = Depends(get_db)):
-    try:
-        platforms = await PlatformService.get_or_seed_platforms(db)
-        total_discovered = 0
-        details = []
-        for p in platforms:
-            if p.status == "ACTIVE":
-                try:
-                    res = await PlatformService.scrape_platform(db, p.id)
-                    total_discovered += res.get("discovered_count", 0)
-                    details.append(res)
-                except Exception as ex:
-                    details.append({"platform_name": p.name, "error": str(ex)})
-
-        return {
-            "success": True,
-            "total_discovered": total_discovered,
-            "platforms_scraped": len([d for d in details if "error" not in d]),
-            "details": details,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+@app.post("/api/discovery/run")
+async def run_discovery_endpoint(force: bool = Query(False), db: AsyncSession = Depends(get_db)):
+    """Search every active source that is due (or all of them with force=true)."""
+    return await DiscoveryService.run(db, force=force)
 
 
 # -------------------------------------------------------------------
@@ -1079,6 +999,8 @@ async def human_apply_endpoint(opportunity_id: str, db: AsyncSession = Depends(g
         raise HTTPException(status_code=409, detail={
             "message": str(dup), "application": TrackerService.to_dict(dup.existing),
         })
+    opp.status = "QUEUED"
+    await db.commit()
     return {
         "success": True,
         "status": row.status,

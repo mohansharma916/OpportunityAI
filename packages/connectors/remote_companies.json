@@ -1,0 +1,414 @@
+{
+ "verified_on": "2026-10-16",
+ "note": "Each board answered its public job-board API with at least one job on verified_on. remote_first marks companies known to hire remote-first; others are filtered per job.",
+ "companies": [
+  {
+   "name": "1Password",
+   "ats": "ashby",
+   "token": "1password",
+   "remote_first": true
+  },
+  {
+   "name": "Airbyte",
+   "ats": "ashby",
+   "token": "airbyte",
+   "remote_first": true
+  },
+  {
+   "name": "Airtable",
+   "ats": "greenhouse",
+   "token": "airtable",
+   "remote_first": false
+  },
+  {
+   "name": "Andela",
+   "ats": "ashby",
+   "token": "andela",
+   "remote_first": true
+  },
+  {
+   "name": "Anyscale",
+   "ats": "ashby",
+   "token": "anyscale",
+   "remote_first": false
+  },
+  {
+   "name": "Articulate",
+   "ats": "lever",
+   "token": "articulate",
+   "remote_first": true
+  },
+  {
+   "name": "Astronomer",
+   "ats": "ashby",
+   "token": "astronomer",
+   "remote_first": false
+  },
+  {
+   "name": "Bitwarden",
+   "ats": "greenhouse",
+   "token": "bitwarden",
+   "remote_first": true
+  },
+  {
+   "name": "Brex",
+   "ats": "greenhouse",
+   "token": "brex",
+   "remote_first": false
+  },
+  {
+   "name": "Buffer",
+   "ats": "ashby",
+   "token": "buffer",
+   "remote_first": true
+  },
+  {
+   "name": "Canonical",
+   "ats": "greenhouse",
+   "token": "canonical",
+   "remote_first": true
+  },
+  {
+   "name": "ClickHouse",
+   "ats": "ashby",
+   "token": "clickhouse",
+   "remote_first": false
+  },
+  {
+   "name": "Close",
+   "ats": "ashby",
+   "token": "close",
+   "remote_first": true
+  },
+  {
+   "name": "Cloudflare",
+   "ats": "greenhouse",
+   "token": "cloudflare",
+   "remote_first": false
+  },
+  {
+   "name": "Cockroach Labs",
+   "ats": "greenhouse",
+   "token": "cockroachlabs",
+   "remote_first": false
+  },
+  {
+   "name": "Coder",
+   "ats": "ashby",
+   "token": "coder",
+   "remote_first": true
+  },
+  {
+   "name": "Cohere",
+   "ats": "ashby",
+   "token": "cohere",
+   "remote_first": false
+  },
+  {
+   "name": "Contentful",
+   "ats": "greenhouse",
+   "token": "contentful",
+   "remote_first": false
+  },
+  {
+   "name": "Datadog",
+   "ats": "greenhouse",
+   "token": "datadog",
+   "remote_first": false
+  },
+  {
+   "name": "DuckDuckGo",
+   "ats": "ashby",
+   "token": "duck-duck-go",
+   "remote_first": true
+  },
+  {
+   "name": "Elastic",
+   "ats": "greenhouse",
+   "token": "elastic",
+   "remote_first": true
+  },
+  {
+   "name": "GitBook",
+   "ats": "ashby",
+   "token": "gitbook",
+   "remote_first": false
+  },
+  {
+   "name": "GitLab",
+   "ats": "greenhouse",
+   "token": "gitlab",
+   "remote_first": true
+  },
+  {
+   "name": "Grafana Labs",
+   "ats": "greenhouse",
+   "token": "grafanalabs",
+   "remote_first": true
+  },
+  {
+   "name": "Gusto",
+   "ats": "greenhouse",
+   "token": "gusto",
+   "remote_first": false
+  },
+  {
+   "name": "Help Scout",
+   "ats": "ashby",
+   "token": "helpscout",
+   "remote_first": true
+  },
+  {
+   "name": "Infisical",
+   "ats": "ashby",
+   "token": "infisical",
+   "remote_first": false
+  },
+  {
+   "name": "LangChain",
+   "ats": "ashby",
+   "token": "langchain",
+   "remote_first": false
+  },
+  {
+   "name": "Lightdash",
+   "ats": "ashby",
+   "token": "lightdash",
+   "remote_first": false
+  },
+  {
+   "name": "Linear",
+   "ats": "ashby",
+   "token": "linear",
+   "remote_first": false
+  },
+  {
+   "name": "Mattermost",
+   "ats": "greenhouse",
+   "token": "mattermost",
+   "remote_first": true
+  },
+  {
+   "name": "Mercury",
+   "ats": "greenhouse",
+   "token": "mercury",
+   "remote_first": false
+  },
+  {
+   "name": "Metabase",
+   "ats": "lever",
+   "token": "metabase",
+   "remote_first": false
+  },
+  {
+   "name": "Miro",
+   "ats": "ashby",
+   "token": "miro",
+   "remote_first": false
+  },
+  {
+   "name": "Modal",
+   "ats": "ashby",
+   "token": "modal",
+   "remote_first": false
+  },
+  {
+   "name": "MongoDB",
+   "ats": "greenhouse",
+   "token": "mongodb",
+   "remote_first": false
+  },
+  {
+   "name": "Mozilla",
+   "ats": "greenhouse",
+   "token": "mozilla",
+   "remote_first": false
+  },
+  {
+   "name": "n8n",
+   "ats": "ashby",
+   "token": "n8n",
+   "remote_first": false
+  },
+  {
+   "name": "Neon",
+   "ats": "ashby",
+   "token": "neon",
+   "remote_first": false
+  },
+  {
+   "name": "Netlify",
+   "ats": "greenhouse",
+   "token": "netlify",
+   "remote_first": true
+  },
+  {
+   "name": "Notion",
+   "ats": "ashby",
+   "token": "notion",
+   "remote_first": false
+  },
+  {
+   "name": "Okta",
+   "ats": "greenhouse",
+   "token": "okta",
+   "remote_first": false
+  },
+  {
+   "name": "Oyster",
+   "ats": "ashby",
+   "token": "oyster",
+   "remote_first": true
+  },
+  {
+   "name": "Pinecone",
+   "ats": "ashby",
+   "token": "pinecone",
+   "remote_first": false
+  },
+  {
+   "name": "Plaid",
+   "ats": "ashby",
+   "token": "plaid",
+   "remote_first": false
+  },
+  {
+   "name": "PlanetScale",
+   "ats": "greenhouse",
+   "token": "planetscale",
+   "remote_first": false
+  },
+  {
+   "name": "PostHog",
+   "ats": "ashby",
+   "token": "posthog",
+   "remote_first": true
+  },
+  {
+   "name": "Prefect",
+   "ats": "ashby",
+   "token": "prefect",
+   "remote_first": false
+  },
+  {
+   "name": "Railway",
+   "ats": "ashby",
+   "token": "railway",
+   "remote_first": true
+  },
+  {
+   "name": "Ramp",
+   "ats": "ashby",
+   "token": "ramp",
+   "remote_first": false
+  },
+  {
+   "name": "Render",
+   "ats": "ashby",
+   "token": "render",
+   "remote_first": false
+  },
+  {
+   "name": "Replit",
+   "ats": "ashby",
+   "token": "replit",
+   "remote_first": false
+  },
+  {
+   "name": "Sanity",
+   "ats": "ashby",
+   "token": "sanity",
+   "remote_first": false
+  },
+  {
+   "name": "Sentry",
+   "ats": "ashby",
+   "token": "sentry",
+   "remote_first": false
+  },
+  {
+   "name": "Sourcegraph",
+   "ats": "greenhouse",
+   "token": "sourcegraph91",
+   "remote_first": true
+  },
+  {
+   "name": "Storyblok",
+   "ats": "greenhouse",
+   "token": "storyblok",
+   "remote_first": false
+  },
+  {
+   "name": "Stripe",
+   "ats": "greenhouse",
+   "token": "stripe",
+   "remote_first": false
+  },
+  {
+   "name": "Supabase",
+   "ats": "ashby",
+   "token": "supabase",
+   "remote_first": true
+  },
+  {
+   "name": "Tailscale",
+   "ats": "greenhouse",
+   "token": "tailscale",
+   "remote_first": true
+  },
+  {
+   "name": "Temporal",
+   "ats": "ashby",
+   "token": "temporal",
+   "remote_first": false
+  },
+  {
+   "name": "Toptal",
+   "ats": "lever",
+   "token": "toptal",
+   "remote_first": true
+  },
+  {
+   "name": "Turing",
+   "ats": "greenhouse",
+   "token": "turing",
+   "remote_first": true
+  },
+  {
+   "name": "Twilio",
+   "ats": "greenhouse",
+   "token": "twilio",
+   "remote_first": false
+  },
+  {
+   "name": "Vercel",
+   "ats": "greenhouse",
+   "token": "vercel",
+   "remote_first": true
+  },
+  {
+   "name": "Weaviate",
+   "ats": "ashby",
+   "token": "weaviate",
+   "remote_first": false
+  },
+  {
+   "name": "Webflow",
+   "ats": "ashby",
+   "token": "webflow",
+   "remote_first": false
+  },
+  {
+   "name": "Wikimedia Foundation",
+   "ats": "greenhouse",
+   "token": "wikimedia",
+   "remote_first": true
+  },
+  {
+   "name": "Zapier",
+   "ats": "ashby",
+   "token": "zapier",
+   "remote_first": true
+  }
+ ]
+}
