@@ -92,6 +92,19 @@ def canonical_question(text: str) -> str:
     return clean[:100] or "custom_question"
 
 
+def fill_placeholders(template: Optional[str], company: Optional[str], role: Optional[str]) -> Optional[str]:
+    """The template with {company} and {role} filled in; None when a placeholder can't be filled."""
+    if not template:
+        return None
+    text = template
+    for key, value in (("{company}", company), ("{role}", role)):
+        if key in text:
+            if not value:
+                return None
+            text = text.replace(key, value)
+    return text
+
+
 def _yes_no(value: Any) -> Optional[str]:
     if value is None or value == "":
         return None
@@ -134,11 +147,14 @@ class AnswerBank:
         answers: Dict[str, str],
         resume_path: Optional[str] = None,
         custom_answers: Optional[Dict[str, str]] = None,
+        job_answers: Optional[Dict[str, str]] = None,
     ):
         self.answers = {k: v for k, v in answers.items() if v not in (None, "")}
         self.resume_path = resume_path
         # Verified answers to past custom questions, keyed by canonical question
         self.custom_answers = {k: v for k, v in (custom_answers or {}).items() if v}
+        # Answers given for this one application (e.g. expected pay), never reused elsewhere
+        self.job_answers = {k: v for k, v in (job_answers or {}).items() if v}
 
     @classmethod
     def from_intake(
@@ -148,6 +164,9 @@ class AnswerBank:
         resume_variant: Optional[str] = None,
         cover_note: Optional[str] = None,
         custom_answers: Optional[Dict[str, str]] = None,
+        role: Optional[str] = None,
+        job_answers: Optional[Dict[str, str]] = None,
+        company: Optional[str] = None,
     ) -> "AnswerBank":
         identity = intake.get("identity") or {}
         targeting = intake.get("targeting") or {}
@@ -158,8 +177,14 @@ class AnswerBank:
         full_name = (identity.get("full_name") or "").strip()
         parts = full_name.split()
         salary = None
-        if targeting.get("disclose_salary") and targeting.get("min_salary"):
-            salary = f"{targeting['min_salary']} {targeting.get('salary_currency') or ''}".strip()
+        if targeting.get("disclose_salary"):
+            from packages.matching.discovery import CandidatePrefs, parse_role_floors, salary_floor
+
+            floor = salary_floor(role or "", CandidatePrefs(
+                min_salary=targeting.get("min_salary"),
+                role_min_salary=parse_role_floors(targeting.get("role_min_salary"))))
+            if floor:
+                salary = f"{floor:g} {targeting.get('salary_currency') or ''}".strip()
         city_country = ", ".join(p for p in (identity.get("city"), identity.get("country")) if p)
 
         answers = {
@@ -183,7 +208,7 @@ class AnswerBank:
             "needs_sponsorship": _yes_no(screening.get("needs_sponsorship")),
             "willing_to_relocate": _yes_no(screening.get("willing_to_relocate")),
             "willing_to_travel": _yes_no(screening.get("willing_to_travel")),
-            "why_company": screening.get("why_company_template"),
+            "why_company": fill_placeholders(screening.get("why_company_template"), company, role),
             "about_long": screening.get("about_long") or screening.get("about_short"),
             "referral_source": screening.get("referral_source"),
             "eeo_gender": screening.get("eeo_gender") or _DECLINE,
@@ -201,6 +226,7 @@ class AnswerBank:
             answers,
             resume_path=resume_path or documents.get("master_resume_path"),
             custom_answers=custom_answers,
+            job_answers=job_answers,
         )
 
     def match(self, form_field: FormField) -> Optional[FieldAnswer]:
@@ -221,7 +247,10 @@ class AnswerBank:
         source = "bank"
         if not value:
             custom_key = canonical_question(form_field.label)
-            value = self.custom_answers.get(custom_key)
+            value = self.job_answers.get(custom_key)
+            # Pay depends on the role, so a salary answer from another application is never reused
+            if not value and key != "salary":
+                value = self.custom_answers.get(custom_key)
             key, source = (custom_key, "custom") if value else (key, source)
         if not value:
             return None

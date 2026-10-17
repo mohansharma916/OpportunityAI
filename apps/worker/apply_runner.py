@@ -78,7 +78,8 @@ async def run_row(
         if row.status == "APPROVED" and not expected:
             raise SkipRow("Approval has no recorded fill. Re-run the fill and approve again.")
 
-    bank = await IntakeService.build_answer_bank(db, resume_variant=row.resume_variant, cover_note=row.cover_note)
+    bank = await IntakeService.build_answer_bank(db, resume_variant=row.resume_variant, cover_note=row.cover_note,
+                                                 role=row.role, company=row.company, job_answers=(row.form or {}).get("job_answers"))
     worker = FormAutomationWorker(driver, pacer=pacer, on_captcha=on_captcha)
     result = await worker.apply(row.job_url, bank, submit=submit, expected_fingerprint=expected)
     suggestions = await suggest(db, row, result)

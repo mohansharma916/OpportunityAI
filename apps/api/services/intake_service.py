@@ -3,6 +3,10 @@ OpportunityOS — Candidate Intake & Answer Bank Service
 The intake is filled once; every form answer and LinkedIn edit is generated from it.
 """
 
+import io
+import re
+import zipfile
+from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +21,7 @@ SECTIONS = ("identity", "targeting", "documents", "screening", "accounts", "link
 # Fields the automation cannot work without, per section.
 REQUIRED_FIELDS: Dict[str, List[str]] = {
     "identity": ["full_name", "email", "phone", "country", "timezone", "linkedin_url"],
-    "targeting": ["target_titles", "seniority", "remote_scope", "min_salary", "daily_cap"],
+    "targeting": ["target_titles", "seniority", "remote_scope", "daily_cap"],  # no salary floor = any pay
     "documents": ["master_resume_path"],
     "screening": ["work_authorization", "needs_sponsorship", "about_short"],
     "accounts": [],
@@ -25,6 +29,9 @@ REQUIRED_FIELDS: Dict[str, List[str]] = {
 }
 
 DEFAULT_DAILY_CAP = 15
+
+RESUME_TYPES = (".pdf", ".docx")
+MAX_RESUME_BYTES = 10 * 1024 * 1024
 
 # Keys that must never be stored: logins live only in the candidate's browser profile.
 _FORBIDDEN_KEYS = ("password", "passwd", "cookie", "li_at", "token", "secret")
@@ -110,6 +117,66 @@ class IntakeService:
         return intake
 
     @staticmethod
+    async def save_resume(
+        db: AsyncSession, filename: str, content: bytes, variant: Optional[str] = None, user_id: Optional[str] = None
+    ) -> CandidateIntakeModel:
+        """Stores an uploaded resume on this Mac, where the worker uploads it from, and points the intake at it."""
+        from apps.worker.automation import OOS_HOME
+
+        suffix = Path(filename or "").suffix.lower()
+        if suffix not in RESUME_TYPES:
+            raise ValueError("Upload a PDF or Word (.docx) file.")
+        if not content:
+            raise ValueError("The file is empty.")
+        if len(content) > MAX_RESUME_BYTES:
+            raise ValueError("Resume files must be under 10 MB.")
+        name = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(filename).stem).strip("-.") or "resume"
+        variant = (variant or "").strip()
+        folder = (OOS_HOME / "resumes").resolve()
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{re.sub(r'[^A-Za-z0-9_-]+', '-', variant) + '-' if variant else ''}{name}{suffix}"
+        path.write_bytes(content)
+
+        documents = dict((await IntakeService.get_or_create(db, user_id=user_id)).documents or {})
+        if variant:
+            documents["resume_variants"] = {**(documents.get("resume_variants") or {}), variant: str(path)}
+        else:
+            documents["master_resume_path"] = str(path)
+        return await IntakeService.update(db, {"documents": documents}, user_id=user_id)
+
+    @staticmethod
+    def resume_text(intake: CandidateIntakeModel) -> str:
+        """Plain text of the master resume (PDF, .docx or text), or "" when it can't be read."""
+        from apps.api.services.onboarding_service import OnboardingService
+
+        path = Path((intake.documents or {}).get("master_resume_path") or "").expanduser()
+        if not path.is_file() or path.stat().st_size > MAX_RESUME_BYTES:
+            return ""
+        content = path.read_bytes()
+        if path.suffix.lower() == ".docx":
+            try:
+                with zipfile.ZipFile(io.BytesIO(content)) as z:
+                    xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
+                return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", xml.replace("</w:p>", "\n"))).strip()
+            except (zipfile.BadZipFile, KeyError):
+                return ""
+        return OnboardingService.extract_text_from_file(content, path.name)
+
+    @staticmethod
+    async def draft_texts(db: AsyncSession, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Drafts of the "about you" and "why this company" answers, for the candidate to edit and save."""
+        from apps.api.services.linkedin_optimizer_service import LinkedInOptimizerService
+        from packages.ai.intake_writer import write_intake_texts
+        from packages.ai.llm import llm_available, provider_label
+
+        intake = await IntakeService.get_or_create(db, user_id=user_id)
+        facts = (await LinkedInOptimizerService.candidate_facts(db)).model_dump()
+        facts["location"] = {k: (intake.identity or {}).get(k) for k in ("city", "country", "timezone")}
+        resume = IntakeService.resume_text(intake)
+        drafts = await write_intake_texts(facts, resume, use_ai=llm_available())
+        return {"drafts": drafts, "used_resume": bool(resume.strip()), "ai_provider": provider_label()}
+
+    @staticmethod
     def completeness(intake: CandidateIntakeModel) -> Dict[str, Any]:
         missing: Dict[str, List[str]] = {}
         total = filled = 0
@@ -140,6 +207,9 @@ class IntakeService:
         user_id: Optional[str] = None,
         resume_variant: Optional[str] = None,
         cover_note: Optional[str] = None,
+        role: Optional[str] = None,
+        job_answers: Optional[Dict[str, str]] = None,
+        company: Optional[str] = None,
     ) -> AnswerBank:
         intake = await IntakeService.get_or_create(db, user_id=user_id)
         profile_facts: Dict[str, Any] = {}
@@ -160,4 +230,7 @@ class IntakeService:
             resume_variant=resume_variant,
             cover_note=cover_note,
             custom_answers=custom,
+            role=role,
+            job_answers=job_answers,
+            company=company,
         )

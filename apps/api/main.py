@@ -6,7 +6,7 @@ Production REST API with async database sessions, OpenAPI docs, and domain servi
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1026,6 +1026,25 @@ async def human_apply_endpoint(opportunity_id: str, db: AsyncSession = Depends(g
 @app.get("/api/intake")
 async def get_intake_endpoint(user_id: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)):
     intake = await IntakeService.get_or_create(db, user_id=user_id)
+    return IntakeService.to_dict(intake)
+
+
+@app.post("/api/intake/draft-texts")
+async def draft_intake_texts(user_id: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)):
+    return await IntakeService.draft_texts(db, user_id=user_id)
+
+
+@app.post("/api/intake/resume")
+async def upload_intake_resume(
+    file: UploadFile = File(...),
+    variant: Optional[str] = Form(None),
+    user_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        intake = await IntakeService.save_resume(db, file.filename or "", await file.read(), variant, user_id=user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return IntakeService.to_dict(intake)
 
 

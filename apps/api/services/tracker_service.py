@@ -11,6 +11,7 @@ from sqlalchemy import select, func
 
 from apps.api.models import TrackedApplicationModel
 from apps.api.services.activity_service import ActivityService
+from packages.answer_bank import classify_label
 
 STATUSES = [
     "QUEUED",
@@ -316,16 +317,24 @@ class TrackerService:
         form = dict(row.form or {})
         labels = {q.get("canonical"): q.get("label") for q in form.get("unanswered") or []}
         saved = 0
+        job_answers = dict(form.get("job_answers") or {})
         for canonical, value in answers.items():
             if canonical not in labels:
                 raise ValueError(f"'{canonical}' is not an open question on this application")
             if value is None or not str(value).strip():
+                continue
+            if classify_label(labels[canonical] or "") == "salary":
+                # Expected pay depends on the role: kept on this application only
+                job_answers[canonical] = str(value)
+                saved += 1
                 continue
             await ProfileService.save_or_update_answer(
                 db, question_text=labels[canonical], answer_text=str(value), question_canonical=canonical,
                 source="CANDIDATE",
             )
             saved += 1
+        if job_answers:
+            form["job_answers"] = job_answers
         form["manual_answers"] = int(form.get("manual_answers") or 0) + saved
         row.form = form
         if saved:

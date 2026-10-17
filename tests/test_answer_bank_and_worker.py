@@ -169,3 +169,17 @@ async def test_pacer_gaps_stay_in_range():
         await pacer.between_applications()
     assert all(30 <= s <= 120 for s in slept)
     assert all(40 <= pacer.typing_delay_ms() <= 120 for _ in range(20))
+
+
+def test_salary_answer_follows_the_role():
+    intake = {**INTAKE, "targeting": {"min_salary": 30000, "salary_currency": "USD", "disclose_salary": True,
+                                      "role_min_salary": {"Backend Engineer": "50000"}}}
+    question = FormField(label="What are your salary expectations?")
+    assert AnswerBank.from_intake(intake, role="Senior Backend Engineer").match(question).value == "50000 USD"
+    assert AnswerBank.from_intake(intake, role="Data Analyst").match(question).value == "30000 USD"
+
+    # Not disclosed: a salary answer saved for another job is never reused; one for this job is
+    hidden = {**INTAKE, "targeting": {"disclose_salary": False}}
+    saved = {"what_are_your_salary_expectations": "45000 USD"}
+    assert AnswerBank.from_intake(hidden, custom_answers=saved).match(question) is None
+    assert AnswerBank.from_intake(hidden, job_answers=saved).match(question).value == "45000 USD"

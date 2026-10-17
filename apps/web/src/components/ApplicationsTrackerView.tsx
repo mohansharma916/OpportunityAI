@@ -109,7 +109,7 @@ function ReviewPanel({ row, onChanged }: { row: any; onChanged: () => Promise<vo
               )}
               {q.suggestion && (
                 <div className="flex items-center gap-1 text-[10px] text-purple-300">
-                  <Sparkles className="w-3 h-3" /> Claude suggested this ({q.suggestion.confidence}): {q.suggestion.basis}. Check it before saving.
+                  <Sparkles className="w-3 h-3" /> {q.suggestion.generated_by === 'OPENAI' ? 'OpenAI' : 'Claude'} suggested this ({q.suggestion.confidence}): {q.suggestion.basis}. Check it before saving.
                 </div>
               )}
             </div>

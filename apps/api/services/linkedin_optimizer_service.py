@@ -232,7 +232,7 @@ class LinkedInOptimizerService:
     # ------------------------------------------------------------------
     @staticmethod
     async def state(db: AsyncSession) -> Dict[str, Any]:
-        from packages.ai.claude_drafter import claude_available
+        from packages.ai.llm import provider_label
 
         row = await LinkedInOptimizerService.latest_snapshot(db)
         drafts = await LinkedInOptimizerService.list_drafts(db)
@@ -242,5 +242,5 @@ class LinkedInOptimizerService:
             } if row else None,
             "audit": row.audit if row else None,
             "drafts": [LinkedInOptimizerService.draft_dict(d) for d in drafts],
-            "claude_available": claude_available(),
+            "ai_provider": provider_label(),
         }

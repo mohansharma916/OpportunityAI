@@ -22,7 +22,7 @@
 - **Apply queue:** "Queue to Apply" adds a role to the tracker. Nothing is submitted from the API.
 - **Worker (`apps/worker`):** Playwright drives your own persistent Chrome profile, so logins live in the browser, not the database. It fills forms from the answer bank with human pacing, keeps a screenshot of every run, and hands CAPTCHAs, login walls and unknown questions back to you.
 - **ATS adapters:** Greenhouse and Lever (field ids/names, dropdown comboboxes, file inputs, confirmation pages), built from their live forms; Ashby and other sites use label matching.
-- **Approve, then submit:** a fill pauses on questions it has no answer for (Claude suggests answers from your facts when `ANTHROPIC_API_KEY` is set). Your answers are saved to the answer bank and reused. You review the filled fields and screenshot in Applications and approve; the worker re-fills and submits only if the answers still match what you approved. A CAPTCHA on submit waits in the open window for you to solve.
+- **Approve, then submit:** a fill pauses on questions it has no answer for (the AI suggests answers from your facts when `OPENAI_API_KEY` is set). Your answers are saved to the answer bank and reused. You review the filled fields and screenshot in Applications and approve; the worker re-fills and submits only if the answers still match what you approved. A CAPTCHA on submit waits in the open window for you to solve.
 - **Trusted auto-submit (opt-in):** after 20 approvals on one ATS needed no changes, queued applications there can submit without review.
 - **Follow-ups:** due 7 days after submitting, with a drafted message; after 2 follow-ups it suggests marking the role ghosted.
 - **Application tracker:** one row per application (ATS form, Easy Apply, LinkedIn post, email), de-duplicated by company + role, with status, evidence, and a follow-up date 7 days after submit.
@@ -31,8 +31,8 @@
 - **Profile optimizer:** reads your own profile (live, or from LinkedIn's data export), scores 12 sections
   (headline, About, experience, skills, photo, Open to Work, featured, recommendations, custom URL, banner,
   education, location) and lists what to fix. Recruiter keywords come from the jobs you've discovered.
-- **Grounded drafts:** every draft is built only from your intake and work history. With `ANTHROPIC_API_KEY` set,
-  Claude (`claude-opus-5-5`) polishes the headline, About and experience bullets; any number not in your facts
+- **Grounded drafts:** every draft is built only from your intake and work history. With `OPENAI_API_KEY` set,
+  OpenAI (`OPENAI_MODEL`, default `gpt-5.4-mini`) polishes the headline, About and experience bullets; any number not in your facts
   is rejected and the template text is kept.
 - **You approve, then it's applied:** the worker types approved headline and About changes into LinkedIn's own
   edit dialogs (dry run by default). Everything else is copy-ready text with where to paste it.
@@ -95,18 +95,29 @@ PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-audit        # read, s
 PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-apply        # dry run approved headline/About
 PYTHONPATH=. .venv/bin/python -m apps.worker.cli linkedin-apply --save # save them
 ```
-Optional: `uv pip install --python .venv/bin/python anthropic` and set `ANTHROPIC_API_KEY` for Claude-polished drafts.
+Optional: `uv pip install --python .venv/bin/python openai` and set `OPENAI_API_KEY` in `.env` for AI drafts and form-answer
+suggestions (the API and the worker both read `.env`). Claude also works: set `ANTHROPIC_API_KEY`, and `LLM_PROVIDER=anthropic` if both keys are set.
 
 The browser profile and screenshots live in `~/.opportunity-os/` (override with `OPPORTUNITY_OS_HOME`).
+
+#### Or run the API and dashboard with Docker
+```bash
+docker compose up -d --build     # API on :8000, dashboard on :3000
+docker compose logs -f api       # follow API logs
+docker compose down              # stop
+```
+The apply worker still runs on your Mac (step 2), because it drives your own Chrome profile. The containers
+use the same `opportunity_os.db` in the project folder and the same screenshots in `~/.opportunity-os/`, and they
+read API keys from `.env` if it exists. Copy `.env.example` to `.env` to set `OPENAI_API_KEY`.
 
 #### 3. Launch Web Dashboard (Next.js 14)
 ```bash
 cd /Users/user/Documents/Projects/opportunity-os/apps/web
 
-# Install dependencies
+# Install dependencies (once)
 npm install
 
-# Start Next.js dev server (Port 3000)
+# Start Next.js dev server (Port 3000); `npm run dev` from the project root does the same
 npm run dev
 ```
 - **Web App:** [http://localhost:3000](http://localhost:3000)
@@ -182,8 +193,10 @@ opportunity-os/
 ├── packages/
 │   ├── answer_bank/                      # Form field -> approved answer matching
 │   ├── linkedin_optimizer/               # Export parser, audit, grounded drafts
-│   ├── ai/claude_drafter.py              # Claude polish with grounding check
-│   ├── ai/claude_answers.py              # Claude suggestions for open form questions
+│   ├── ai/llm.py                         # OpenAI or Claude structured output, one call for every feature
+│   ├── ai/claude_drafter.py              # AI polish of LinkedIn drafts, with grounding check
+│   ├── ai/claude_answers.py              # AI suggestions for open form questions
+│   ├── ai/intake_writer.py               # "About you" and "Why this company" drafts
 │   ├── matching/discovery.py             # Eligibility filters + 0-100 score
 │   └── connectors/                       # job_feeds.py (APIs/RSS), linkedin_posts.py, company list
 └── tests/

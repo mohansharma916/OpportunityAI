@@ -64,9 +64,9 @@ function DraftCard({ draft, onDecide }: { draft: any; onDecide: (id: string, dec
           {draft.apply_mode === 'AGENT' ? <Bot className="w-3 h-3" /> : <Hand className="w-3 h-3" />}
           {draft.apply_mode === 'AGENT' ? 'Agent applies after approval' : 'You apply'}
         </span>
-        {draft.generated_by === 'CLAUDE' && (
+        {draft.generated_by && draft.generated_by !== 'TEMPLATE' && (
           <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/30">
-            <Sparkles className="w-3 h-3" /> Claude
+            <Sparkles className="w-3 h-3" /> {draft.generated_by === 'OPENAI' ? 'OpenAI' : 'Claude'}
           </span>
         )}
       </div>
@@ -323,12 +323,12 @@ export function LinkedInOptimizerView() {
               </div>
             </div>
             <div className="flex-1 min-w-[240px] text-[11px] text-zinc-400">
-              {state.claude_available ? (
+              {state.ai_provider ? (
                 <span className="flex items-center gap-1 text-purple-300">
-                  <Sparkles className="w-3 h-3" /> Drafts polished by Claude, checked against your facts.
+                  <Sparkles className="w-3 h-3" /> Drafts polished by {state.ai_provider}, checked against your facts.
                 </span>
               ) : (
-                <span>Template drafts from your facts. Set ANTHROPIC_API_KEY on the API to have Claude polish them.</span>
+                <span>Template drafts from your facts. Set OPENAI_API_KEY on the API to have them polished.</span>
               )}
             </div>
             <button

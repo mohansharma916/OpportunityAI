@@ -355,7 +355,7 @@ class LinkedInProfileDraftModel(Base):
     instructions = Column(Text, nullable=True)
     apply_mode = Column(String(20), default="MANUAL")  # AGENT, MANUAL
     char_limit = Column(Integer, nullable=True)
-    generated_by = Column(String(20), default="TEMPLATE")  # TEMPLATE, CLAUDE
+    generated_by = Column(String(20), default="TEMPLATE")  # TEMPLATE, OPENAI, CLAUDE
     status = Column(String(20), default="PENDING", index=True)  # PENDING, APPROVED, REJECTED, APPLIED, FAILED, SUPERSEDED
     last_error = Column(Text, nullable=True)
     evidence = Column(JSON, default=list)

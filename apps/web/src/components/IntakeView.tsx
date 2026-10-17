@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, ClipboardList, Loader2, Save, Terminal, UserCircle2 } from 'lucide-react';
+import { CheckCircle2, ClipboardList, FileText, Loader2, Save, Sparkles, Terminal, Upload, UserCircle2 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 
 type FieldType = 'text' | 'email' | 'url' | 'number' | 'date' | 'textarea' | 'list' | 'bool' | 'select' | 'map';
@@ -57,9 +57,21 @@ const SECTIONS: SectionDef[] = [
       { key: 'allowed_regions', label: 'Allowed regions (if region-restricted)', type: 'list', placeholder: 'India, EU, APAC' },
       { key: 'employment_types', label: 'Employment types', type: 'list', placeholder: 'Full-time, Contract' },
       { key: 'contractor_ok', label: 'Contractor via EOR acceptable?', type: 'bool' },
-      { key: 'min_salary', label: 'Minimum salary / rate', type: 'number' },
+      {
+        key: 'min_salary',
+        label: 'Minimum salary / rate (optional)',
+        type: 'number',
+        hint: 'Leave empty to accept any pay. Used for roles without their own minimum below.',
+      },
+      {
+        key: 'role_min_salary',
+        label: 'Minimum per role (optional)',
+        type: 'map',
+        placeholder: 'Backend Engineer=40000\nDevOps Engineer=30000',
+        hint: 'One role=amount per line, yearly, in the currency below. Roles not listed use the minimum above.',
+      },
       { key: 'salary_currency', label: 'Currency', type: 'select', options: ['USD', 'INR', 'EUR', 'GBP'] },
-      { key: 'disclose_salary', label: 'Disclose salary on forms?', type: 'bool', hint: 'If No, salary questions pause for you.' },
+      { key: 'disclose_salary', label: 'Disclose salary on forms?', type: 'bool', hint: 'If No, salary questions pause for you and your answer is used for that job only.' },
       { key: 'notice_period', label: 'Notice period', placeholder: '30 days' },
       { key: 'earliest_start', label: 'Earliest start date', type: 'date' },
       { key: 'excluded_companies', label: 'Companies to exclude', type: 'list' },
@@ -76,12 +88,12 @@ const SECTIONS: SectionDef[] = [
     id: 'documents',
     letter: 'C',
     title: 'Resumes',
-    description: 'Work history and skills are kept in Profile; resumes are files on this Mac.',
+    description: 'Upload your resume, or give the path of a file on this Mac. Work history and skills are kept in Profile.',
     fields: [
-      { key: 'master_resume_path', label: 'Master resume PDF (full path)', placeholder: '/Users/you/Documents/resume.pdf' },
+      { key: 'master_resume_path', label: 'Master resume (set by upload, or a full path)', placeholder: '/Users/you/Documents/resume.pdf' },
       {
         key: 'resume_variants',
-        label: 'Resume variants, one per line as name=path',
+        label: 'Resume variants, one per line as name=path (uploads add a line)',
         type: 'map',
         placeholder: 'backend-v2=/Users/you/Documents/resume-backend.pdf',
       },
@@ -99,7 +111,12 @@ const SECTIONS: SectionDef[] = [
       { key: 'willing_to_travel', label: 'Willing to travel?', type: 'bool' },
       { key: 'about_short', label: '"Tell us about yourself", about 100 words', type: 'textarea' },
       { key: 'about_long', label: '"Tell us about yourself", about 300 words', type: 'textarea' },
-      { key: 'why_company_template', label: '"Why this company" template', type: 'textarea' },
+      {
+        key: 'why_company_template',
+        label: '"Why this company" template',
+        type: 'textarea',
+        hint: 'Write {company} and {role} where the names go; they are filled in for each application.',
+      },
       { key: 'referral_source', label: 'Default "How did you hear about us"', placeholder: 'Company careers page' },
       { key: 'eeo_gender', label: 'EEO: gender', placeholder: 'Decline to answer' },
       { key: 'eeo_race', label: 'EEO: race / ethnicity', placeholder: 'Decline to answer' },
@@ -112,7 +129,8 @@ const SECTIONS: SectionDef[] = [
     id: 'accounts',
     letter: 'E',
     title: 'Accounts (logged in once, in the automation browser)',
-    description: 'Passwords are never stored. Tick each site once you have signed in.',
+    description:
+      'Sign in to each site once in the automation browser (command below); it stays signed in. Passwords are never stored here. Tick a site after signing in so runs know it is ready.',
     fields: [
       { key: 'linkedin', label: 'LinkedIn', type: 'bool' },
       { key: 'wellfound', label: 'Wellfound', type: 'bool' },
@@ -126,7 +144,7 @@ const SECTIONS: SectionDef[] = [
     id: 'linkedin',
     letter: 'F',
     title: 'LinkedIn inputs',
-    description: 'Feeds the profile optimizer.',
+    description: 'What the LinkedIn optimizer builds your headline, About and posts around.',
     fields: [
       { key: 'positioning', label: 'Positioning: "I help X do Y with Z"' },
       { key: 'topics', label: 'Topics to be known for (3)', type: 'list' },
@@ -168,6 +186,62 @@ function fromDisplay(type: FieldType, raw: string): any {
   return raw;
 }
 
+function ResumeUpload({ query, onUploaded }: { query: string; onUploaded: (data: any, message: string) => void }) {
+  const [variant, setVariant] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    const body = new FormData();
+    body.append('file', file);
+    if (variant.trim()) body.append('variant', variant.trim());
+    try {
+      setBusy(true);
+      setError(null);
+      const data = await fetchApi<any>(`/api/intake/resume${query}`, { method: 'POST', body });
+      onUploaded(data, variant.trim() ? `Uploaded ${file.name} as variant "${variant.trim()}".` : `Uploaded ${file.name} as your master resume.`);
+      setVariant('');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="p-3 rounded-lg bg-black/30 border border-white/5 space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-xs font-bold text-white cursor-pointer ${busy ? 'opacity-50 pointer-events-none' : ''}`}
+        >
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          <span>{busy ? 'Uploading...' : 'Upload resume'}</span>
+          <input
+            type="file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            className="hidden"
+            onChange={(e) => {
+              upload(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+        </label>
+        <input
+          value={variant}
+          onChange={(e) => setVariant(e.target.value)}
+          placeholder="Variant name (optional, e.g. backend-v2)"
+          className={`${inputClass} max-w-[260px]`}
+        />
+      </div>
+      <p className="text-[10px] text-zinc-500 flex items-center gap-1.5">
+        <FileText className="w-3 h-3" /> PDF or .docx, up to 10 MB. Without a variant name it becomes your master resume.
+      </p>
+      {error && <p className="text-[11px] text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 interface IntakeViewProps {
   userId?: string;
   onOpenProfile?: () => void;
@@ -179,6 +253,7 @@ export function IntakeView({ userId, onOpenProfile }: IntakeViewProps) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
 
   const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
 
@@ -221,6 +296,30 @@ export function IntakeView({ userId, onOpenProfile }: IntakeViewProps) {
       setNotice(`Save failed: ${err.message}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDraftTexts = async () => {
+    try {
+      setDrafting(true);
+      const res = await fetchApi<any>(`/api/intake/draft-texts${query}`, { method: 'POST' });
+      setDraft((prev) => ({
+        ...prev,
+        screening: {
+          ...prev.screening,
+          ...Object.fromEntries(Object.entries(res.drafts).map(([k, v]: [string, any]) => [k, v.text])),
+        },
+      }));
+      setDirty(true);
+      const by = Object.values(res.drafts).some((v: any) => v.generated_by !== 'TEMPLATE') ? res.ai_provider : 'a template';
+      setNotice(
+        `Drafted by ${by} from your profile${res.used_resume ? ' and resume' : ''}. Review, edit, then Save intake.` +
+          (res.ai_provider ? '' : ' Set OPENAI_API_KEY for better drafts.'),
+      );
+    } catch (err: any) {
+      setNotice(`Drafting failed: ${err.message}`);
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -292,6 +391,40 @@ export function IntakeView({ userId, onOpenProfile }: IntakeViewProps) {
               )}
             </div>
 
+            {section.id === 'documents' && (
+              <ResumeUpload
+                query={query}
+                onUploaded={(data, message) => {
+                  // Refresh only the resume fields so unsaved edits elsewhere are kept
+                  setIntake(data);
+                  setDraft((prev) => ({
+                    ...prev,
+                    documents: Object.fromEntries(
+                      (SECTIONS.find((s) => s.id === 'documents')?.fields || []).map((f) => [
+                        f.key,
+                        toDisplay(f.type || 'text', data?.documents?.[f.key]),
+                      ]),
+                    ),
+                  }));
+                  setNotice(message);
+                }}
+              />
+            )}
+            {section.id === 'screening' && (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={handleDraftTexts}
+                  disabled={drafting}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-500/15 hover:bg-brand-500/25 border border-brand-500/30 text-xs font-bold text-brand-200 disabled:opacity-50"
+                >
+                  {drafting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>{drafting ? 'Writing...' : 'Write "about you" and "why this company" for me'}</span>
+                </button>
+                <span className="text-[10px] text-zinc-500">
+                  From your Profile and resume. Replaces those three boxes; nothing is saved until you click Save.
+                </span>
+              </div>
+            )}
             {section.id === 'documents' && onOpenProfile && (
               <button onClick={onOpenProfile} className="flex items-center gap-1.5 text-[11px] text-brand-300 hover:text-brand-200">
                 <UserCircle2 className="w-3.5 h-3.5" /> Edit work history and skills in Profile

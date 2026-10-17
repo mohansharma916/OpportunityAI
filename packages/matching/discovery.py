@@ -10,7 +10,7 @@ Score 0-100: skills 40, title & seniority 25, salary 15, employer 10, freshness 
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from packages.connectors.job_feeds import JobPosting
 
@@ -70,9 +70,32 @@ class CandidatePrefs:
     country: Optional[str] = None
     remote_scope: str = "WORLDWIDE"
     allowed_regions: List[str] = field(default_factory=list)
-    min_salary: Optional[float] = None
+    min_salary: Optional[float] = None  # empty: any pay is fine
     salary_currency: Optional[str] = None
     excluded_companies: List[str] = field(default_factory=list)
+    role_min_salary: Dict[str, float] = field(default_factory=dict)  # target title -> its own floor
+
+
+def parse_role_floors(raw: Any) -> Dict[str, float]:
+    """{"Backend Engineer": "40000"} from the intake; blank or non-numeric entries are dropped."""
+    out: Dict[str, float] = {}
+    for title, value in (raw or {}).items() if isinstance(raw, dict) else ():
+        try:
+            amount = float(str(value).replace(",", "").strip())
+        except ValueError:
+            continue
+        if title.strip() and amount > 0:
+            out[title.strip()] = amount
+    return out
+
+
+def salary_floor(title: str, prefs: CandidatePrefs) -> Optional[float]:
+    """The floor for this role: its own entry if the title matches one, else the general minimum (or none)."""
+    if prefs.role_min_salary:
+        fit, matched = title_fit(title, CandidatePrefs(target_titles=list(prefs.role_min_salary)))
+        if matched and fit >= 0.5:
+            return prefs.role_min_salary[matched]
+    return prefs.min_salary or None
 
 
 @dataclass
@@ -186,9 +209,10 @@ def evaluate(p: JobPosting, prefs: CandidatePrefs, remote_first: bool = False, n
     if fit < 0.5:
         return Evaluation(False, "Title doesn't match your target titles")
     salary = annual_salary(p)
+    floor = salary_floor(p.title, prefs)
     same_currency = not prefs.salary_currency or not p.salary_currency or p.salary_currency.upper() == prefs.salary_currency.upper()
-    if salary and prefs.min_salary and same_currency and salary < prefs.min_salary:
-        return Evaluation(False, f"Pays up to {salary:,.0f}, below your floor")
+    if salary and floor and same_currency and salary < floor:
+        return Evaluation(False, f"Pays up to {salary:,.0f}, below your floor of {floor:,.0f} for this role")
 
     # Skills: how much of what the job asks for the candidate already has
     text = f"{p.title}\n{' '.join(p.tags)}\n{p.description}"
@@ -205,7 +229,7 @@ def evaluate(p: JobPosting, prefs: CandidatePrefs, remote_first: bool = False, n
 
     title_pts = round(25 * fit * seniority_factor(p.title, prefs.seniority))
 
-    if not prefs.min_salary:
+    if not floor:
         salary_pts = 12
     elif salary is None or not same_currency:
         salary_pts = 9

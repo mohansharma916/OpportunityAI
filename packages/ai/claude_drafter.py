@@ -1,26 +1,24 @@
 """
-OpportunityOS — Claude polish for LinkedIn profile drafts.
+OpportunityOS — AI polish (OpenAI or Claude) for LinkedIn profile drafts.
 
-Takes the grounded template drafts and asks Claude to rewrite the headline options,
-About section and experience bullets from the same facts. Every Claude output is
+Takes the grounded template drafts and asks the AI provider (OpenAI or Claude) to rewrite the headline options,
+About section and experience bullets from the same facts. Every AI output is
 checked before use: length limits, and no number that is not in the candidate's facts.
 Anything that fails the check, errors, or is refused keeps the template text.
 """
 
 import json
 import logging
-import os
 import re
 from typing import Any, Dict, List, Optional, Set
 
-import anthropic
-
+from packages.ai.llm import CLAUDE_MODEL, llm_available, structured_json
 from packages.linkedin_optimizer.audit import ABOUT_LIMIT, HEADLINE_LIMIT
 from packages.linkedin_optimizer.drafts import CandidateFacts, Draft
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-opus-5-5"
+MODEL = CLAUDE_MODEL
 
 SYSTEM_PROMPT = (
     "You rewrite sections of a job seeker's LinkedIn profile so recruiters hiring for their target "
@@ -60,7 +58,8 @@ OUTPUT_SCHEMA: Dict[str, Any] = {
 
 
 def claude_available() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+    """True when any AI provider (OpenAI or Claude) is configured; the name predates OpenAI support."""
+    return llm_available()
 
 
 def numbers_in(text: str) -> Set[str]:
@@ -101,40 +100,13 @@ async def polish_drafts(
     facts: CandidateFacts,
     keywords: List[str],
     drafts: List[Draft],
-    client: Optional[anthropic.AsyncAnthropic] = None,
+    client: Any = None,
 ) -> List[Draft]:
-    """Return drafts with Claude's grounded rewrites applied; unchanged on any failure."""
-    client = client or anthropic.AsyncAnthropic()
-    try:
-        response = await client.beta.messages.create(
-            model=MODEL,
-            max_tokens=16000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            output_config={
-                "effort": "medium",
-                "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA},
-            },
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _build_prompt(facts, keywords, drafts)}],
-        )
-    except anthropic.RateLimitError:
-        logger.warning("Claude rate limited; keeping template drafts")
-        return drafts
-    except anthropic.APIStatusError as exc:
-        logger.warning("Claude API error %s; keeping template drafts", exc.status_code)
-        return drafts
-    except anthropic.APIConnectionError:
-        logger.warning("Could not reach Claude; keeping template drafts")
-        return drafts
-
-    if response.stop_reason in ("refusal", "max_tokens"):
-        logger.warning("Claude stopped with %s; keeping template drafts", response.stop_reason)
-        return drafts
-    text = next((b.text for b in response.content if b.type == "text"), None)
-    try:
-        out = json.loads(text or "")
-    except json.JSONDecodeError:
+    """Return drafts with the AI's grounded rewrites applied; unchanged on any failure."""
+    out, by = await structured_json(SYSTEM_PROMPT, _build_prompt(facts, keywords, drafts), OUTPUT_SCHEMA,
+                                    "linkedin_drafts", max_tokens=16000, client=client)
+    if out is None:
+        logger.warning("No AI polish; keeping template drafts")
         return drafts
 
     facts_text = facts.model_dump_json() + " ".join(d.current or "" for d in drafts)
@@ -148,12 +120,12 @@ async def polish_drafts(
             ]
             if options:
                 d.alternatives = options[1:] + [draft.proposed] + draft.alternatives
-                d.proposed, d.generated_by = options[0], "CLAUDE"
+                d.proposed, d.generated_by = options[0], by
         elif d.section == "about":
             about = (out.get("about") or "").strip()
             if about and len(about) <= ABOUT_LIMIT and is_grounded(about, facts_text):
                 d.alternatives = [draft.proposed]
-                d.proposed, d.generated_by = about, "CLAUDE"
+                d.proposed, d.generated_by = about, by
         elif d.section == "experience":
             match = next(
                 (e for e in out.get("experience") or [] if e.get("company", "").strip().lower() == _company_of(d)),
@@ -163,6 +135,6 @@ async def polish_drafts(
             body = "\n".join(f"• {b}" for b in bullets)
             if bullets and is_grounded(body, facts_text):
                 d.alternatives = [draft.proposed]
-                d.proposed, d.generated_by = body, "CLAUDE"
+                d.proposed, d.generated_by = body, by
         result.append(d)
     return result

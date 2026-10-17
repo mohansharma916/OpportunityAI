@@ -1,5 +1,5 @@
 """
-OpportunityOS — Claude suggestions for application questions the answer bank can't answer.
+OpportunityOS — AI suggestions (OpenAI or Claude) for application questions the answer bank can't answer.
 
 Suggestions are drafts for the candidate to accept or edit; they are never submitted on
 their own. Each suggestion is checked: a choice must be one of the form's options, and a
@@ -10,9 +10,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-import anthropic
-
-from packages.ai.claude_drafter import MODEL, is_grounded
+from packages.ai.llm import structured_json
+from packages.ai.claude_drafter import is_grounded
 from packages.answer_bank import pick_option
 
 logger = logging.getLogger(__name__)
@@ -49,7 +48,7 @@ OUTPUT_SCHEMA: Dict[str, Any] = {
 }
 
 
-def _validate(question: Dict[str, Any], raw: Dict[str, Any], facts_text: str) -> Optional[Dict[str, Any]]:
+def _validate(question: Dict[str, Any], raw: Dict[str, Any], facts_text: str, by: str) -> Optional[Dict[str, Any]]:
     answer = (raw.get("answer") or "").strip()
     if not answer or raw.get("confidence") == "low":
         return None
@@ -61,19 +60,18 @@ def _validate(question: Dict[str, Any], raw: Dict[str, Any], facts_text: str) ->
     elif len(answer) > 1500 or not is_grounded(answer, facts_text):
         return None
     return {"answer": answer, "confidence": raw.get("confidence"), "basis": (raw.get("basis") or "")[:300],
-            "generated_by": "CLAUDE"}
+            "generated_by": by}
 
 
 async def suggest_answers(
     questions: List[Dict[str, Any]],
     facts: Dict[str, Any],
     job: Dict[str, Any],
-    client: Optional[anthropic.AsyncAnthropic] = None,
+    client: Any = None,
 ) -> Dict[str, Dict[str, Any]]:
-    """Return {canonical: suggestion} for the questions Claude could answer from the facts."""
+    """Return {canonical: suggestion} for the questions the AI could answer from the facts."""
     if not questions:
         return {}
-    client = client or anthropic.AsyncAnthropic()
     facts_text = json.dumps(facts, default=str)
     prompt = (
         f"<facts>\n{facts_text}\n</facts>\n\n"
@@ -81,40 +79,18 @@ async def suggest_answers(
         f"<questions>\n{json.dumps([{k: q.get(k) for k in ('canonical', 'label', 'type', 'options')} for q in questions])}\n</questions>\n\n"
         "Answer each question by its canonical id."
     )
-    try:
-        response = await client.beta.messages.create(
-            model=MODEL,
-            max_tokens=16000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            output_config={"effort": "medium", "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except anthropic.RateLimitError:
-        logger.warning("Claude rate limited; no suggestions")
+    out_json, by = await structured_json(SYSTEM_PROMPT, prompt, OUTPUT_SCHEMA, "form_answers", max_tokens=16000,
+                                         client=client)
+    if out_json is None:
         return {}
-    except anthropic.APIStatusError as exc:
-        logger.warning("Claude API error %s; no suggestions", exc.status_code)
-        return {}
-    except anthropic.APIConnectionError:
-        logger.warning("Could not reach Claude; no suggestions")
-        return {}
-
-    if response.stop_reason in ("refusal", "max_tokens"):
-        return {}
-    text = next((b.text for b in response.content if b.type == "text"), None)
-    try:
-        raw_answers = json.loads(text or "").get("answers") or []
-    except (json.JSONDecodeError, AttributeError):
-        return {}
+    raw_answers = out_json.get("answers") or []
 
     by_canonical = {q["canonical"]: q for q in questions}
     out: Dict[str, Dict[str, Any]] = {}
     for raw in raw_answers:
         q = by_canonical.get(raw.get("canonical"))
         if q:
-            ok = _validate(q, raw, facts_text)
+            ok = _validate(q, raw, facts_text, by)
             if ok:
                 out[q["canonical"]] = ok
     return out

@@ -25,7 +25,7 @@ from apps.api.services.platform_service import PlatformService
 from apps.api.services.profile_service import ProfileService
 from apps.api.services.tracker_service import DuplicateApplicationError, TrackerService
 from packages.connectors.job_feeds import JobPosting, UnsupportedSource, fetch_postings, load_company_registry
-from packages.matching.discovery import CandidatePrefs, evaluate
+from packages.matching.discovery import CandidatePrefs, evaluate, parse_role_floors
 
 FETCH_CONCURRENCY = 4
 
@@ -55,6 +55,7 @@ class DiscoveryService:
             min_salary=targeting.get("min_salary"),
             salary_currency=targeting.get("salary_currency"),
             excluded_companies=targeting.get("excluded_companies") or [],
+            role_min_salary=parse_role_floors(targeting.get("role_min_salary")),
         )
 
     # ------------------------------------------------------------------

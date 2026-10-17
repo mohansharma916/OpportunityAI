@@ -34,7 +34,7 @@ from packages.connectors.job_feeds import (
     resolve_source,
 )
 from packages.connectors.linkedin_posts import parse_age, parse_hiring_post, search_urls
-from packages.matching.discovery import CandidatePrefs, evaluate, title_fit
+from packages.matching.discovery import CandidatePrefs, evaluate, parse_role_floors, salary_floor, title_fit
 
 NOW = datetime(2026, 10, 16, 12, 0)
 DAY = timedelta(days=1)
@@ -278,3 +278,17 @@ async def test_linkedin_posts_ingest(disc_db):
     if stats["queued"]:
         row = (await disc_db.execute(select(TrackedApplicationModel))).scalars().first()
         assert row.post_url and row.apply_channel == "ATS_LINK" and row.contact_name == "Ravi K"
+
+
+def test_salary_floor_depends_on_role():
+    prefs = CandidatePrefs(target_titles=["Backend Engineer", "DevOps Engineer"], country="India",
+                           salary_currency="USD", role_min_salary=parse_role_floors(
+                               {"Backend Engineer": "50,000", "DevOps Engineer": "", "x": "abc"}))
+    assert prefs.role_min_salary == {"Backend Engineer": 50000.0}
+    low = dict(salary_max=40000, salary_currency="USD", salary_period="year")
+    assert "below your floor of 50,000" in evaluate(_p(**low), prefs, now=NOW).reason
+    # A role with no floor of its own, and no general minimum: any pay is fine
+    assert evaluate(_p(title="DevOps Engineer", **low), prefs, now=NOW).eligible
+    prefs.min_salary = 45000
+    assert not evaluate(_p(title="DevOps Engineer", **low), prefs, now=NOW).eligible
+    assert salary_floor("Senior Backend Engineer", prefs) == 50000

@@ -3,7 +3,25 @@ OpportunityOS — API Configuration
 """
 
 import os
+from pathlib import Path
 from pydantic import BaseModel
+
+# AI settings may live in the project's .env, so the API and the worker on the Mac both pick them up.
+# Only these keys are read from it, and a variable already set in the environment wins.
+_ENV_FILE_KEYS = ("OPENAI_API_KEY", "OPENAI_MODEL", "ANTHROPIC_API_KEY", "LLM_PROVIDER")
+
+
+def _load_env_file(path: Path = Path(__file__).resolve().parents[2] / ".env") -> None:
+    if os.getenv("OPPORTUNITY_OS_SKIP_ENV_FILE") or not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        key, sep, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("'\"")
+        if sep and key in _ENV_FILE_KEYS and value and not os.getenv(key):
+            os.environ[key] = value
+
+
+_load_env_file()
 
 
 class Settings(BaseModel):
