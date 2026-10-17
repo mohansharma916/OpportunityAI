@@ -48,7 +48,8 @@ class DiscoveryService:
         return CandidatePrefs(
             target_titles=titles,
             seniority=targeting.get("seniority"),
-            skills=[s.skill_name for s in profile.skills] if profile else [],
+            # Skills still being learned show on the profile but don't pull in jobs that require them
+            skills=[s.skill_name for s in profile.skills if s.proficiency != "BEGINNER"] if profile else [],
             country=identity.get("country"),
             remote_scope=targeting.get("remote_scope") or "WORLDWIDE",
             allowed_regions=targeting.get("allowed_regions") or [],

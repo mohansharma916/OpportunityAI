@@ -10,6 +10,7 @@ from packages.domain.models import (
     Opportunity,
     MatchingScore,
     RemoteType,
+    SkillProficiency,
 )
 
 # Known transferable skill equivalences
@@ -117,14 +118,16 @@ class MatchingEngine:
     def _evaluate_technical(
         self, profile: CandidateProfile, opportunity: Opportunity
     ) -> Tuple[float, Dict[str, str], List[str], List[str]]:
-        candidate_skills_map = {s.skill_name.lower(): s for s in profile.skills}
+        # Skills still being learned don't count as a match
+        known = [s for s in profile.skills if s.proficiency != SkillProficiency.BEGINNER]
+        candidate_skills_map = {s.skill_name.lower(): s for s in known}
         req_skills = [s.strip() for s in (opportunity.required_skills or []) if s and s.strip()]
         pref_skills = [s.strip() for s in (opportunity.preferred_skills or []) if s and s.strip()]
 
         # If no explicit skills listed in job, extract from title/description keywords
         if not req_skills:
             desc_lower = opportunity.description.lower() + " " + opportunity.title.lower()
-            req_skills = [s.skill_name for s in profile.skills if s.skill_name.lower() in desc_lower]
+            req_skills = [s.skill_name for s in known if s.skill_name.lower() in desc_lower]
             if not req_skills:
                 req_skills = ["Software Engineering"]
 

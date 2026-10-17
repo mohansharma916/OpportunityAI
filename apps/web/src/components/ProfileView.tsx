@@ -419,6 +419,7 @@ export function ProfileView({
                 onChange={(e) => setNewSkillProf(e.target.value)}
                 className="bg-surface-500 border border-white/10 rounded px-2 py-1 text-xs text-amber-300 font-mono focus:outline-none"
               >
+                <option value="BEGINNER">Learning</option>
                 <option value="INTERMEDIATE">Intermediate</option>
                 <option value="ADVANCED">Advanced</option>
                 <option value="EXPERT">Expert</option>
